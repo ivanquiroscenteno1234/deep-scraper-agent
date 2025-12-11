@@ -5,7 +5,8 @@ from deep_scraper.graph.nodes import (
     node_analyze, 
     node_click_link, 
     node_perform_search, 
-    node_extract
+    node_extract,
+    node_generate_script
 )
 from deep_scraper.core.browser import BrowserManager
 
@@ -46,6 +47,7 @@ workflow.add_node("analyze", node_analyze)
 workflow.add_node("click_link", node_click_link)
 workflow.add_node("perform_search", node_perform_search)
 workflow.add_node("extract", node_extract)
+workflow.add_node("generate_script", node_generate_script)
 
 # Add Edges
 # Start -> Navigate
@@ -90,8 +92,11 @@ workflow.add_conditional_edges(
     {"extract": "extract", "end": END}
 )
 
-# Extract -> End
-workflow.add_edge("extract", END)
+# Extract -> Generate Script
+workflow.add_edge("extract", "generate_script")
+
+# Generate Script -> End
+workflow.add_edge("generate_script", END)
 
 # Compile
 app = workflow.compile()

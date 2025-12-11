@@ -418,8 +418,148 @@ async def node_extract(state: AgentState) -> Dict[str, Any]:
             print(f"No results message: {result.no_results_message}")
     
     return {
-        "status": "COMPLETED",
+        "status": "EXTRACTED",
         "extracted_data": extracted_data,
         "current_page_summary": fresh_content,
         "logs": state["logs"] + [f"Extraction complete. Found {len(extracted_data)} records."]
     }
+
+
+async def node_generate_script(state: AgentState) -> Dict[str, Any]:
+    """Generates a reusable Playwright script based on the execution logs."""
+    print("--- Node: Generate Script ---")
+    
+    # Extract county name from URL
+    import re
+    from urllib.parse import urlparse
+    
+    url = state["target_url"]
+    parsed = urlparse(url)
+    hostname = parsed.hostname or "unknown"
+    
+    # Try to extract county name from hostname (e.g., "records.flaglerclerk.com" -> "flagler")
+    county_match = re.search(r'(\w+)clerk', hostname, re.IGNORECASE)
+    if county_match:
+        county_name = county_match.group(1).lower()
+    else:
+        # Fallback: use first part of hostname
+        county_name = hostname.split('.')[0].replace('records', '').replace('-', '_') or "unknown"
+    
+    print(f"County name extracted: {county_name}")
+    
+    # Gather all execution info
+    logs = state.get("logs", [])
+    selectors = state.get("search_selectors", {})
+    search_query = state.get("search_query", "")
+    extracted_data = state.get("extracted_data", [])
+    
+    # Build the prompt for Gemini
+    prompt = f"""
+You are a Playwright script generator. Based on the following execution logs from a web scraping session, 
+generate a complete, standalone Python Playwright script.
+
+## EXECUTION DETAILS
+
+**Target URL (HARDCODE THIS):** {url}
+
+**Search Query Used:** {search_query}
+
+**Selectors Discovered:**
+- Input field: {selectors.get('input', 'unknown')}
+- Submit button: {selectors.get('submit', 'unknown')}
+
+**Execution Logs:**
+{chr(10).join(logs)}
+
+**Sample Extracted Data:**
+{extracted_data[:3] if extracted_data else 'No data extracted'}
+
+## REQUIREMENTS
+
+Generate a Python script that:
+
+1. **Function signature:** `def scrape_{county_name}(search_term: str) -> str:`
+2. **Hardcode the URL:** `{url}`
+3. **Accept search_term as parameter** - replace the hardcoded search query with this parameter
+4. **Handle disclaimer/accept buttons** if the logs show they were clicked
+5. **Use the exact selectors** from the execution (input: {selectors.get('input')}, submit: {selectors.get('submit')})
+6. **Extract data** from the results table and save to CSV
+7. **Return the CSV filename**
+8. **Include proper error handling** with screenshots on failure
+9. **Use sync Playwright API** (not async)
+
+## TEMPLATE STRUCTURE
+
+```python
+from playwright.sync_api import sync_playwright
+import csv
+import os
+from datetime import datetime
+
+def scrape_{county_name}(search_term: str) -> str:
+    \"\"\"
+    Scrapes {county_name.title()} County records for the given search term.
+    
+    Args:
+        search_term: The name or term to search for
+        
+    Returns:
+        Path to the saved CSV file
+    \"\"\"
+    # Your implementation here
+    pass
+
+if __name__ == "__main__":
+    import sys
+    term = sys.argv[1] if len(sys.argv) > 1 else "Test Name"
+    result = scrape_{county_name}(term)
+    print(f"Results saved to: {{result}}")
+```
+
+Generate ONLY the Python code, no explanations. Make it production-ready.
+"""
+    
+    try:
+        # Call Gemini to generate the script
+        result = await llm.ainvoke([
+            SystemMessage(content="You are an expert Playwright automation script generator. Generate clean, working Python code."),
+            HumanMessage(content=prompt)
+        ])
+        
+        generated_code = result.content
+        
+        # Clean up the code (remove markdown code blocks if present)
+        if "```python" in generated_code:
+            generated_code = generated_code.split("```python")[1].split("```")[0]
+        elif "```" in generated_code:
+            generated_code = generated_code.split("```")[1].split("```")[0]
+        
+        generated_code = generated_code.strip()
+        
+        # Save the script
+        output_dir = os.path.join(os.getcwd(), "output", "generated_scripts")
+        os.makedirs(output_dir, exist_ok=True)
+        
+        script_filename = os.path.join(output_dir, f"{county_name}_scraper.py")
+        
+        with open(script_filename, 'w', encoding='utf-8') as f:
+            f.write(generated_code)
+        
+        print(f"✅ Script saved to: {script_filename}")
+        
+        return {
+            "status": "COMPLETED",
+            "generated_script_path": script_filename,
+            "extracted_data": extracted_data,  # Pass through for UI display
+            "logs": state["logs"] + [f"Generated Playwright script: {script_filename}"]
+        }
+        
+    except Exception as e:
+        print(f"❌ Script generation failed: {e}")
+        return {
+            "status": "COMPLETED",
+            "generated_script_path": None,
+            "extracted_data": extracted_data,  # Pass through even on failure
+            "logs": state["logs"] + [f"Script generation failed: {str(e)}"]
+        }
+

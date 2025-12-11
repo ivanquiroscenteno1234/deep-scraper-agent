@@ -13,6 +13,7 @@ class AgentState(TypedDict):
         status: High-level status of the agent.
         extracted_data: List of extracted records.
         search_selectors: Dict to store identified form selectors (input/submit).
+        generated_script_path: Path to the generated Playwright script.
     """
     target_url: str
     search_query: str
@@ -22,3 +23,5 @@ class AgentState(TypedDict):
     status: str  # Enum: "NAVIGATING", "SEARCH_PAGE_FOUND", "SEARCH_EXECUTED", "COMPLETED", "FAILED"
     extracted_data: List[Dict[str, Any]]
     search_selectors: Optional[Dict[str, str]]
+    generated_script_path: Optional[str]
+

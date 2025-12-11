@@ -84,7 +84,8 @@ async def run_agent():
         attempt_count=0,
         status="NAVIGATING",
         extracted_data=[],
-        search_selectors={{}}
+        search_selectors={{}},
+        generated_script_path=None
     )
     
     final_state = None
@@ -132,9 +133,22 @@ if __name__ == "__main__":
                 env={**os.environ, "PYTHONIOENCODING": "utf-8"}
             )
             
-            # Display logs
+            # Display logs in scrollable container
             output = result.stdout + result.stderr
-            log_placeholder.code(output, language="text")
+            log_html = f'<div class="log-container"><pre>{output}</pre></div>'
+            log_placeholder.markdown(log_html, unsafe_allow_html=True)
+            
+            # Check for script generation
+            if "Generated Playwright script:" in output or "Script saved to:" in output:
+                import re
+                script_match = re.search(r'Script saved to: (.+\.py)', output)
+                if script_match:
+                    script_path = script_match.group(1).strip()
+                    st.success(f"🎉 **Script Generated Successfully!** `{script_path}`")
+                else:
+                    st.success("🎉 **Script Generated Successfully!**")
+            elif "Script generation failed" in output:
+                st.warning("⚠️ Script generation failed. Check logs for details.")
             
             # Check if CSV was saved
             if "Data saved to:" in output:
