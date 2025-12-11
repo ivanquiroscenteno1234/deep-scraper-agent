@@ -71,9 +71,9 @@ import json
 import sys
 sys.path.insert(0, r"{os.getcwd()}")
 
-from graph_engine import app as graph_app
-from agent_state import AgentState
-from browser_manager import BrowserManager
+from deep_scraper.graph.engine import app as graph_app
+from deep_scraper.core.state import AgentState
+from deep_scraper.core.browser import BrowserManager
 
 async def run_agent():
     initial_state = AgentState(

@@ -4,9 +4,9 @@ from typing import Dict, Any, List
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from agent_state import AgentState
-from browser_manager import BrowserManager
-from schemas import NavigationDecision, SearchFormDetails, ExtractionResult
+from deep_scraper.core.state import AgentState
+from deep_scraper.core.browser import BrowserManager
+from deep_scraper.core.schemas import NavigationDecision, SearchFormDetails, ExtractionResult
 import os
 from dotenv import load_dotenv
 
@@ -388,7 +388,7 @@ async def node_extract(state: AgentState) -> Dict[str, Any]:
             from datetime import datetime
             
             # Create output directory if it doesn't exist
-            output_dir = os.path.join(os.getcwd(), "extracted_data")
+            output_dir = os.path.join(os.getcwd(), "output", "extracted_data")
             os.makedirs(output_dir, exist_ok=True)
             
             # Generate filename with timestamp

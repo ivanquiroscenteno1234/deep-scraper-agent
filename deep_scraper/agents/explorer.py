@@ -10,7 +10,7 @@ from langchain_community.agent_toolkits import PlayWrightBrowserToolkit
 from langchain.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, AIMessage
 
-from prompts import EXPLORER_SYSTEM_PROMPT, CODE_GENERATION_PROMPT
+from deep_scraper.utils.prompts import EXPLORER_SYSTEM_PROMPT, CODE_GENERATION_PROMPT
 
 load_dotenv()
 

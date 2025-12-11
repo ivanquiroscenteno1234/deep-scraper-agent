@@ -9,7 +9,7 @@ from playwright.async_api import async_playwright, Page
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from dom_helper import simplify_dom
+from deep_scraper.utils.dom import simplify_dom
 
 # Define structured output for the Action Decision
 class VisualAction(BaseModel):
@@ -164,4 +164,3 @@ class VisualExplorer:
             await browser.close()
             
         return self.recorded_steps
-

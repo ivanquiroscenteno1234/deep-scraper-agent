@@ -1,13 +1,13 @@
 from langgraph.graph import StateGraph, END
-from agent_state import AgentState
-from graph_nodes import (
+from deep_scraper.core.state import AgentState
+from deep_scraper.graph.nodes import (
     node_navigate, 
     node_analyze, 
     node_click_link, 
     node_perform_search, 
     node_extract
 )
-from browser_manager import BrowserManager
+from deep_scraper.core.browser import BrowserManager
 
 # Define conditional logic for edges
 def should_search_or_click(state: AgentState):
