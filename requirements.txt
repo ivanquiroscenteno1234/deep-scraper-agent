@@ -1,0 +1,8 @@
+langgraph
+langchain
+langchain-google-genai
+playwright
+beautifulsoup4
+pydantic
+python-dotenv
+html2text
