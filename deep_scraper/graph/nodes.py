@@ -224,7 +224,6 @@ async def node_perform_search(state: AgentState) -> Dict[str, Any]:
     # Execute Actions
     try:
         await browser.fill_form(input_selector, state["search_query"])
-        await asyncio.sleep(1)
         
         if submit_selector:
             await browser.click_element(submit_selector)
@@ -232,9 +231,9 @@ async def node_perform_search(state: AgentState) -> Dict[str, Any]:
             # Try pressing Enter on the input field
             await page.press(input_selector, "Enter")
         
-        # Explicit wait for results
+        # Brief wait for results to load
         print("Waiting for results...")
-        await asyncio.sleep(3)
+        await asyncio.sleep(1)
         # Refresh content to see results
         summary = await browser.get_clean_content()
         
@@ -258,9 +257,9 @@ async def node_extract(state: AgentState) -> Dict[str, Any]:
     """Analyzes results and extracts data, then saves to CSV."""
     print("--- Node: Extract ---")
     
-    # Step 1: Wait longer for results to fully load (dynamic content)
+    # Brief wait for dynamic content to load
     print("Waiting for results to load...")
-    await asyncio.sleep(5)  # Increased to 5 seconds for dynamic content
+    await asyncio.sleep(2)  # Reduced from 5s
     
     # Get fresh page content after search
     fresh_content = await browser.get_clean_content()

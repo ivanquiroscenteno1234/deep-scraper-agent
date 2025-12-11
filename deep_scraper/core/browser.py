@@ -166,47 +166,25 @@ class BrowserManager:
             return "### ERROR EXTRACTING TABLES"
 
     async def click_element(self, selector: str):
-        """Reliably clicks an element with multiple fallback strategies."""
+        """Reliably clicks an element with optimized fallback strategies."""
         if not self.page:
             return
             
         print(f"BrowserManager: Clicking {selector}")
         
-        # Strategy 1: Wait for visible and click normally
+        # Strategy 1: Quick check if visible - try normal click first (fastest path)
         try:
-            await self.page.wait_for_selector(selector, state="visible", timeout=3000)
+            await self.page.wait_for_selector(selector, state="visible", timeout=1000)
             await self.page.click(selector)
-            await self.page.wait_for_load_state("networkidle", timeout=5000)
+            await self.page.wait_for_load_state("networkidle", timeout=3000)
             print(f"Click succeeded (visible strategy)")
             return
         except Exception as e:
-            print(f"Visible click failed: {e}")
+            print(f"Visible click failed, trying JS...")
         
-        # Strategy 2: Element exists but hidden - try scrolling into view first
+        # Strategy 2: JavaScript click - FASTEST for hidden elements (most common case)
         try:
-            element = await self.page.query_selector(selector)
-            if element:
-                await element.scroll_into_view_if_needed()
-                await asyncio.sleep(0.5)  # Wait for scroll/animation
-                await element.click()
-                await self.page.wait_for_load_state("networkidle", timeout=5000)
-                print(f"Click succeeded (scroll into view strategy)")
-                return
-        except Exception as e:
-            print(f"Scroll+click failed: {e}")
-        
-        # Strategy 3: Force click (ignores visibility checks)
-        try:
-            await self.page.click(selector, force=True)
-            await self.page.wait_for_load_state("networkidle", timeout=5000)
-            print(f"Click succeeded (force click strategy)")
-            return
-        except Exception as e:
-            print(f"Force click failed: {e}")
-        
-        # Strategy 4: JavaScript click (works for elements hidden by CSS)
-        try:
-            await self.page.evaluate(f'''() => {{
+            clicked = await self.page.evaluate(f'''() => {{
                 const el = document.querySelector("{selector}");
                 if (el) {{
                     el.click();
@@ -214,13 +192,36 @@ class BrowserManager:
                 }}
                 return false;
             }}''')
-            await self.page.wait_for_load_state("networkidle", timeout=5000)
-            print(f"Click succeeded (JavaScript strategy)")
-            return
+            if clicked:
+                await self.page.wait_for_load_state("networkidle", timeout=3000)
+                print(f"Click succeeded (JavaScript strategy)")
+                return
         except Exception as e:
             print(f"JavaScript click failed: {e}")
         
-        # Strategy 5: Try triggering any onclick handler directly
+        # Strategy 3: Force click (ignores visibility checks)
+        try:
+            await self.page.click(selector, force=True, timeout=2000)
+            await self.page.wait_for_load_state("networkidle", timeout=3000)
+            print(f"Click succeeded (force click strategy)")
+            return
+        except Exception as e:
+            print(f"Force click failed: {e}")
+        
+        # Strategy 4: Scroll into view + click (reduced timeout)
+        try:
+            element = await self.page.query_selector(selector)
+            if element:
+                await element.scroll_into_view_if_needed(timeout=2000)
+                await asyncio.sleep(0.3)
+                await element.click()
+                await self.page.wait_for_load_state("networkidle", timeout=3000)
+                print(f"Click succeeded (scroll into view strategy)")
+                return
+        except Exception as e:
+            print(f"Scroll+click failed: {e}")
+        
+        # Strategy 5: Try triggering onclick handler directly
         try:
             await self.page.evaluate(f'''() => {{
                 const el = document.querySelector("{selector}");
@@ -230,7 +231,7 @@ class BrowserManager:
                 }}
                 return false;
             }}''')
-            await self.page.wait_for_load_state("networkidle", timeout=5000)
+            await self.page.wait_for_load_state("networkidle", timeout=3000)
             print(f"Click succeeded (onclick trigger strategy)")
             return
         except Exception as e:
