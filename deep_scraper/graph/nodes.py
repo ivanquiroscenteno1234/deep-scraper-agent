@@ -297,6 +297,12 @@ PAGE SUMMARY:
     
     # Fallback input selectors - MUST be text inputs
     input_fallbacks = [
+        # Dallas County PublicSearch
+        "input[data-testid='searchInputBox']",
+        "input[placeholder*='grantor/grantee' i]",
+        "input.clearable-input__input",
+        ".clearable-input input",
+        # Flagler/Brevard style
         "#name-Name",
         "#Name",
         "#txtName", 
@@ -306,12 +312,19 @@ PAGE SUMMARY:
         "input[type='text'][id*='Name']",
         "input[type='text'][name*='name' i]",
         "input#name",
-        "input[id*='Name']:not([type='submit']):not([type='button'])",
-        "input[id*='name']:not([type='submit']):not([type='button'])"
+        "input[id*='Name']:not([type='submit']):not([type='button']):not([type='radio']):not([type='checkbox'])",
+        "input[id*='name']:not([type='submit']):not([type='button']):not([type='radio']):not([type='checkbox'])",
+        # Generic text inputs
+        "input[type='text']:visible",
+        "input:not([type]):not([hidden])"
     ]
     
     # Fallback submit button selectors
     submit_fallbacks = [
+        # Dallas County PublicSearch
+        "button[data-testid='searchSubmitButton']",
+        "button[type='submit'][aria-label*='search' i]",
+        # Flagler/Brevard style
         "input[value='Search']",
         "#btnSearch",
         "#searchButton",
