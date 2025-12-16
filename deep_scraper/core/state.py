@@ -14,6 +14,9 @@ class AgentState(TypedDict):
         extracted_data: List of extracted records.
         search_selectors: Dict to store identified form selectors (input/submit).
         generated_script_path: Path to the generated Playwright script.
+        generated_script_code: The actual Python code of the generated script.
+        script_test_attempts: Number of times we've tried to test/fix the script.
+        script_error: Error message from failed script execution.
     """
     target_url: str
     search_query: str
@@ -24,4 +27,7 @@ class AgentState(TypedDict):
     extracted_data: List[Dict[str, Any]]
     search_selectors: Optional[Dict[str, str]]
     generated_script_path: Optional[str]
+    generated_script_code: Optional[str]
+    script_test_attempts: int
+    script_error: Optional[str]
 

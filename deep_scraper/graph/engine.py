@@ -6,7 +6,9 @@ from deep_scraper.graph.nodes import (
     node_click_link, 
     node_perform_search, 
     node_extract,
-    node_generate_script
+    node_generate_script,
+    node_test_script,
+    node_fix_script
 )
 from deep_scraper.core.browser import BrowserManager
 
@@ -22,6 +24,11 @@ def should_search_or_click(state: AgentState):
     if attempt_count > 5:
         print("Circuit Breaker Tripped!")
         return "end" # Map to END
+    
+    # Handle login required - stop the agent
+    if status == "LOGIN_REQUIRED":
+        print("🔐 Login required - cannot proceed")
+        return "end"
         
     if status == "SEARCH_PAGE_FOUND":
         return "perform_search"
@@ -38,6 +45,33 @@ def check_search_status(state: AgentState):
     else:
         return "end" # Failed search
 
+
+def check_test_result(state: AgentState):
+    """
+    Decides what to do after testing the script.
+    - If passed: end (success!)
+    - If failed and attempts < 3: fix and retry
+    - If failed and attempts >= 3: end (give up)
+    """
+    status = state.get("status")
+    attempts = state.get("script_test_attempts", 0)
+    
+    if status == "TEST_PASSED":
+        print("✅ Script test passed! Workflow complete.")
+        return "end"
+    elif attempts >= 3:
+        print("❌ Max retries reached. Giving up.")
+        return "end"
+    else:
+        print(f"🔄 Test failed, attempting fix (attempt {attempts}/3)")
+        return "fix_script"
+
+
+def after_fix(state: AgentState):
+    """After fixing, always go back to test."""
+    return "test_script"
+
+
 # Build the Graph
 workflow = StateGraph(AgentState)
 
@@ -48,6 +82,8 @@ workflow.add_node("click_link", node_click_link)
 workflow.add_node("perform_search", node_perform_search)
 workflow.add_node("extract", node_extract)
 workflow.add_node("generate_script", node_generate_script)
+workflow.add_node("test_script", node_test_script)
+workflow.add_node("fix_script", node_fix_script)
 
 # Add Edges
 # Start -> Navigate
@@ -68,21 +104,6 @@ workflow.add_conditional_edges(
 )
 
 # Click Link -> Navigate (Loop back to re-analyze new page)
-# Spec said "Loop back to node_analyze", but usually we need to 
-# refresh the page content first (which happens in navigate/analyze).
-# Let's verify spec: "Always loop back to node_analyze (to check the new page)."
-# `node_analyze` uses `state['current_page_summary']`. 
-# `node_click_link` executes the click, but doesn't strictly refresh the summary 
-# (although BrowserManager is stateful). 
-# Safer to go back to `navigate` if navigate just gets content, OR have `click_link` return updated summary.
-# Spec says: "node_navigate: Calls BrowserManager.go_to... Updates state['current_page_summary']".
-# If we loop to Analyze directly, we might have stale summary.
-# BUT `node_click_link` doesn't output summary.
-# So we should probably loop back to a node that refreshes content.
-# Since `node_navigate` calls `go_to` (reloading URL), that might be bad if we just clicked a link to a NEW URL.
-# Let's modify logic: `node_navigate` calls `go_to` ONLY if we are at start (attempt=0).
-# Actually, I implemented `node_navigate` to only go_to if attempt_count == 0.
-# So looping back to `navigate` is safe and correct to refresh content!
 workflow.add_edge("click_link", "navigate")
 
 # Perform Search -> Extract
@@ -92,11 +113,27 @@ workflow.add_conditional_edges(
     {"extract": "extract", "end": END}
 )
 
-# Extract -> Generate Script
-workflow.add_edge("extract", "generate_script")
+# Extract -> End (Script generation disabled for now)
+workflow.add_edge("extract", END)
 
-# Generate Script -> End
-workflow.add_edge("generate_script", END)
+# --- SCRIPT GENERATION DISABLED ---
+# To re-enable, uncomment below and comment out the line above
+# 
+# # Generate Script -> Test Script
+# workflow.add_edge("generate_script", "test_script")
+# 
+# # Test Script -> [End OR Fix Script]
+# workflow.add_conditional_edges(
+#     "test_script",
+#     check_test_result,
+#     {
+#         "end": END,
+#         "fix_script": "fix_script"
+#     }
+# )
+# 
+# # Fix Script -> Test Script (retry loop)
+# workflow.add_edge("fix_script", "test_script")
 
 # Compile
 app = workflow.compile()
@@ -116,7 +153,11 @@ if __name__ == "__main__":
             attempt_count=0,
             status="NAVIGATING",
             extracted_data=[],
-            search_selectors={}
+            search_selectors={},
+            generated_script_path=None,
+            generated_script_code=None,
+            script_test_attempts=0,
+            script_error=None
         )
         
         # Run the graph

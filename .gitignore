@@ -23,7 +23,8 @@ Thumbs.db
 # Screenshots/Debug images
 *.png
 
-# Output data (optional - remove if you want to include)
+# Output data (extracted CSVs - not scripts)
 output/extracted_data/
-output/generated_scripts/
 
+# Keep generated scripts in git!
+# output/generated_scripts/ is NOT ignored
