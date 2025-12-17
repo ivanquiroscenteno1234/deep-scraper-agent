@@ -12,11 +12,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize LLM
+# Initialize LLM with thinking enabled for deeper reasoning
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash-exp",
-    temperature=0,
-    google_api_key=os.getenv("GOOGLE_API_KEY")
+    model="gemini-3-flash-preview",
+    google_api_key=os.getenv("GOOGLE_API_KEY"),
+    # It is recommended to remove temperature for thinking models
+    # or set it strictly inside generation_config if supported.
+    generation_config={
+        "thinking_config": {
+            "thinking_level": "high",
+            "include_thoughts": True # Set to False if you only want the final answer
+        }
+    }
 )
 
 browser = BrowserManager()
@@ -676,7 +683,7 @@ async def node_extract(state: AgentState) -> Dict[str, Any]:
     # Extract data from rows (runs for both primary and fallback selectors)
     if len(rows) > 0:
         print(f"Extracting data from {len(rows)} rows...")
-        for i, row in enumerate(rows[:50]):  # Limit to 50 rows
+        for i, row in enumerate(rows[:2]):  # Limit to 2 rows for fast testing
             try:
                 # Get all cell data from the row
                 cells = await row.query_selector_all("td, th")
