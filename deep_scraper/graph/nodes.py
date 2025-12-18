@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Initialize LLM
+# Initialize LLM with thinking enabled for deeper reasoning
 llm = ChatGoogleGenerativeAI(
     model=os.getenv("GEMINI_MODEL"),
     temperature=0,
