@@ -35,7 +35,7 @@ class BrowserManager:
         
         try:
             await self.page.goto(url)
-            await self.page.wait_for_load_state("networkidle", timeout=10000)
+            await self.page.wait_for_load_state("networkidle", timeout=2000)
         except Exception as e:
             print(f"Navigation warning: {e}")
 
@@ -48,7 +48,31 @@ class BrowserManager:
         if not self.page:
             return ""
             
-        content = await self.page.content()
+        # Execute JS to get ONLY visible content
+        # This prevents the LLM from seeing hidden disclaimers/popups that are technically in the DOM
+        try:
+            content = await self.page.evaluate("""() => {
+                function cloneVisible(node) {
+                    if (node.nodeType === 3) return node.cloneNode(true);
+                    if (node.nodeType !== 1) return null;
+                    
+                    const style = window.getComputedStyle(node);
+                    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return null;
+                    if (node.tagName !== 'BODY' && node.tagName !== 'HTML' && node.offsetParent === null && style.position !== 'fixed') return null;
+                    
+                    const clone = node.cloneNode(false);
+                    for (let child of node.childNodes) {
+                        const childClone = cloneVisible(child);
+                        if (childClone) clone.appendChild(childClone);
+                    }
+                    return clone;
+                }
+                const visibleBody = cloneVisible(document.body);
+                return visibleBody ? visibleBody.innerHTML : "";
+            }""")
+        except Exception as e:
+            print(f"Warning: JS content extraction failed, falling back to full content: {e}")
+            content = await self.page.content()
         soup = BeautifulSoup(content, 'html.parser')
         
         # Extract interactive elements buffer BEFORE cleaning
@@ -170,30 +194,36 @@ class BrowserManager:
         if not self.page:
             return
             
-        print(f"BrowserManager: Clicking {selector}")
+        print(f"BrowserManager: Clicking {selector}", flush=True)
         
         # Strategy 1: Quick check if visible - try normal click first (fastest path)
         try:
             await self.page.wait_for_selector(selector, state="visible", timeout=1000)
             await self.page.click(selector)
-            await self.page.wait_for_load_state("networkidle", timeout=3000)
+            await self.page.wait_for_load_state("networkidle", timeout=2000)
             print(f"Click succeeded (visible strategy)")
             return
         except Exception as e:
             print(f"Visible click failed, trying JS...")
         
-        # Strategy 2: JavaScript click - FASTEST for hidden elements (most common case)
         try:
             clicked = await self.page.evaluate(f'''() => {{
-                const el = document.querySelector("{selector}");
-                if (el) {{
-                    el.click();
-                    return true;
+                try {{
+                    const el = document.querySelector("{selector}");
+                    if (el) {{
+                        el.click();
+                        return true;
+                    }}
+                }} catch (e) {{
+                    return "SYNTAX_ERROR";
                 }}
                 return false;
             }}''')
-            if clicked:
-                await self.page.wait_for_load_state("networkidle", timeout=3000)
+            
+            if clicked == "SYNTAX_ERROR":
+                print(f"JS click skipped (selector '{selector}' not valid CSS)")
+            elif clicked:
+                await self.page.wait_for_load_state("networkidle", timeout=2000)
                 print(f"Click succeeded (JavaScript strategy)")
                 return
         except Exception as e:
@@ -202,7 +232,7 @@ class BrowserManager:
         # Strategy 3: Force click (ignores visibility checks)
         try:
             await self.page.click(selector, force=True, timeout=2000)
-            await self.page.wait_for_load_state("networkidle", timeout=3000)
+            await self.page.wait_for_load_state("networkidle", timeout=2000)
             print(f"Click succeeded (force click strategy)")
             return
         except Exception as e:
@@ -215,7 +245,7 @@ class BrowserManager:
                 await element.scroll_into_view_if_needed(timeout=2000)
                 await asyncio.sleep(0.3)
                 await element.click()
-                await self.page.wait_for_load_state("networkidle", timeout=3000)
+                await self.page.wait_for_load_state("networkidle", timeout=2000)
                 print(f"Click succeeded (scroll into view strategy)")
                 return
         except Exception as e:
@@ -231,7 +261,7 @@ class BrowserManager:
                 }}
                 return false;
             }}''')
-            await self.page.wait_for_load_state("networkidle", timeout=3000)
+            await self.page.wait_for_load_state("networkidle", timeout=2000)
             print(f"Click succeeded (onclick trigger strategy)")
             return
         except Exception as e:
@@ -243,9 +273,9 @@ class BrowserManager:
         if not self.page:
             return
             
-        print(f"BrowserManager: Filling {selector} with '{value}'")
+        print(f"BrowserManager: Filling {selector} with '{value}'", flush=True)
         try:
-            await self.page.wait_for_selector(selector, state="visible", timeout=5000)
+            await self.page.wait_for_selector(selector, state="visible", timeout=2000)
             await self.page.fill(selector, "") # Clear first
             await self.page.fill(selector, value)
             await self.page.press(selector, "Tab") # Trigger validation

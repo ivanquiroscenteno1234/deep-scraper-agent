@@ -83,7 +83,7 @@ def search_county(page: Page, builder_name: str) -> typing.List[typing.Dict]:
     Searches [County Name] Clerk records for a builder.
     '''
     results = []
-    page.set_default_timeout(60000)
+    page.set_default_timeout(2000)
     
     try:
         # Wait for page to load

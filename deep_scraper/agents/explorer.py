@@ -45,7 +45,7 @@ class ScriptExplorer:
         self.log_callback = log_callback
         
         # Initialize LLM
-        model_name = os.getenv("GEMINI_MODEL", "gemini-1.5-pro-latest")
+        model_name = os.getenv("GEMINI_MODEL")
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             self.log_callback("⚠️ WARNING: GOOGLE_API_KEY not found!")
@@ -54,6 +54,12 @@ class ScriptExplorer:
             model=model_name,
             temperature=0,
             google_api_key=api_key,
+            model_kwargs={
+                "thinking_config": {
+                    "include_thoughts": True,
+                    "thinking_level": os.getenv("THINKING_LEVEL")
+                }
+            }
         )
 
     async def explore_async(self, url: str, county_name: str) -> str:

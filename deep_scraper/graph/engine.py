@@ -140,7 +140,11 @@ app = workflow.compile()
 
 if __name__ == "__main__":
     import asyncio
+    import os
     
+    if os.name == 'nt':
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        
     async def main():
         print("Starting Deep Scraper Engine...")
         

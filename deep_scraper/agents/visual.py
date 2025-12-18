@@ -11,7 +11,11 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from deep_scraper.utils.dom import simplify_dom
 
+from dotenv import load_dotenv
+
 # Define structured output for the Action Decision
+load_dotenv()
+
 class VisualAction(BaseModel):
     action_type: Literal['click', 'fill', 'navigate', 'wait', 'finish'] = Field(
         description="The action to take. MUST be one of: 'click', 'fill', 'navigate', 'wait', 'finish'"
@@ -26,12 +30,19 @@ class VisualExplorer:
         self.log_callback = log_callback
         self.recorded_steps = []
         
-        # Initialize Gemini 2.0 Flash (Experimental)
+        # Initialize Gemini from environment variable
+        model_name = os.getenv("GEMINI_MODEL")
         api_key = os.getenv("GOOGLE_API_KEY")
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash-exp",
+            model=model_name,
             temperature=0,
             google_api_key=api_key,
+            model_kwargs={
+                "thinking_config": {
+                    "include_thoughts": True,
+                    "thinking_level": os.getenv("THINKING_LEVEL")
+                }
+            }
         )
         
     async def get_b64_screenshot(self, page: Page) -> str:
@@ -99,7 +110,7 @@ class VisualExplorer:
                 await page.click(action.selector)
                 # Wait a bit for potential navigation/network
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=5000)
+                    await page.wait_for_load_state("networkidle", timeout=2000)
                 except:
                     pass # Ignore timeout on wait
                     

@@ -78,7 +78,7 @@ with st.sidebar:
     )
     search_query = st.text_input(
         "Search Term",
-        value="Smith",
+        value="Lauren",
         help="The name or term to search for."
     )
     
@@ -191,25 +191,34 @@ if __name__ == "__main__":
         temp_script_path = f.name
     
     try:
-        with st.spinner("🤖 Agent is working... (this may take a minute)"):
-            result = subprocess.run(
+        with st.spinner("🤖 Agent is working... (check terminal for real-time logs)"):
+            process = subprocess.Popen(
                 [sys.executable, temp_script_path],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, # Merge stderr into stdout
                 text=True,
-                timeout=300,
                 cwd=os.getcwd(),
-                env={**os.environ, "PYTHONIOENCODING": "utf-8"}
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                bufsize=1, # Line buffered
+                universal_newlines=True
             )
             
+            full_output = ""
+            while True:
+                line = process.stdout.readline()
+                if not line and process.poll() is not None:
+                    break
+                if line:
+                    print(line, end='', flush=True) # Stream to terminal
+                    full_output += line
+                    # Update logs in UI periodically or at the end
+                    formatted_logs = format_logs(full_output)
+                    log_placeholder.markdown(f'<div class="log-container">{formatted_logs}</div>', unsafe_allow_html=True)
+            
             duration = time.time() - start_time
+            output = full_output
             
-            # Display formatted logs
-            output = result.stdout + result.stderr
-            formatted_logs = format_logs(output)
-            log_html = f'<div class="log-container">{formatted_logs}</div>'
-            log_placeholder.markdown(log_html, unsafe_allow_html=True)
-            
-            # Display duration
+            # Display final duration
             duration_placeholder.info(f"⏱️ **Execution time:** {duration:.1f} seconds")
             
             # Check for script generation
@@ -232,31 +241,33 @@ if __name__ == "__main__":
             
             # Parse extracted data
             if "---EXTRACTED_DATA_JSON---" in output:
-                json_line = output.split("---EXTRACTED_DATA_JSON---")[1].strip().split("\n")[0]
                 try:
-                    extracted_data = json.loads(json_line)
-                    if extracted_data:
-                        import pandas as pd
-                        df = pd.DataFrame(extracted_data)
-                        data_placeholder.dataframe(df)
-                        st.success(f"✅ Extraction complete! Found {len(extracted_data)} records.")
-                        
-                        csv_data = df.to_csv(index=False)
-                        st.download_button(
-                            label="📥 Download CSV",
-                            data=csv_data,
-                            file_name=f"extracted_data_{search_query.replace(' ', '_')}.csv",
-                            mime="text/csv"
-                        )
-                    else:
-                        data_placeholder.info("No data extracted. Check logs for details.")
-                except json.JSONDecodeError:
-                    data_placeholder.warning("Could not parse extracted data.")
+                    parts = output.split("---EXTRACTED_DATA_JSON---")
+                    if len(parts) > 1:
+                        json_line = parts[1].strip().split("\n")[0]
+                        extracted_data = json.loads(json_line)
+                        if extracted_data:
+                            import pandas as pd
+                            df = pd.DataFrame(extracted_data)
+                            data_placeholder.dataframe(df)
+                            st.success(f"✅ Extraction complete! Found {len(extracted_data)} records.")
+                            
+                            csv_data = df.to_csv(index=False)
+                            st.download_button(
+                                label="📥 Download CSV",
+                                data=csv_data,
+                                file_name=f"extracted_data_{search_query.replace(' ', '_')}.csv",
+                                mime="text/csv"
+                            )
+                        else:
+                            data_placeholder.info("No data extracted. Check logs for details.")
+                except Exception as e:
+                    data_placeholder.warning(f"Could not parse extracted data: {e}")
             else:
                 data_placeholder.info("Agent finished. Check logs for details.")
                 
-            if result.returncode != 0:
-                st.error(f"Agent exited with code {result.returncode}")
+            if process.returncode != 0:
+                st.error(f"Agent exited with code {process.returncode}")
                 
     except subprocess.TimeoutExpired:
         st.error("⏰ Agent timed out after 5 minutes.")

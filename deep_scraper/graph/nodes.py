@@ -14,16 +14,22 @@ load_dotenv()
 
 # Initialize LLM
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash-exp",
+    model=os.getenv("GEMINI_MODEL"),
     temperature=0,
-    google_api_key=os.getenv("GOOGLE_API_KEY")
+    google_api_key=os.getenv("GOOGLE_API_KEY"),
+    model_kwargs={
+        "thinking_config": {
+            "include_thoughts": True,
+            "thinking_level": os.getenv("THINKING_LEVEL")
+        }
+    }
 )
 
 browser = BrowserManager()
 
 async def node_navigate(state: AgentState) -> Dict[str, Any]:
     """Node that handles initial or subsequent navigation."""
-    print("--- Node: Navigate ---")
+    print("--- Node: Navigate ---", flush=True)
     
     # Check if we need to go to a new URL or just refresh content
     if state["attempt_count"] == 0:
@@ -36,7 +42,7 @@ async def node_navigate(state: AgentState) -> Dict[str, Any]:
 
 async def node_analyze(state: AgentState) -> Dict[str, Any]:
     """Analyzes the page content to decide if we are on the search page."""
-    print("--- Node: Analyze ---")
+    print(f"--- Node: Analyze ---", flush=True)
     
     structured_llm = llm.with_structured_output(NavigationDecision)
     
@@ -92,7 +98,9 @@ If NO visible text input fields AND NO blocking disclaimer:
 """
     
     decision: NavigationDecision = await structured_llm.ainvoke([
-        SystemMessage(content="You are a precise web page classifier. Carefully distinguish between disclaimer pages, login pages, and actual search forms."),
+        SystemMessage(content="""You are a precise web page classifier. 
+        Carefully distinguish between disclaimer pages, login pages, and actual search forms.
+        CRITICAL: NEVER use ':contains()' selectors (invalid CSS). Use standard CSS or 'a:has-text()' for Playwright."""),
         HumanMessage(content=prompt)
     ])
     
@@ -168,7 +176,7 @@ If NO visible text input fields AND NO blocking disclaimer:
 
 async def node_click_link(state: AgentState) -> Dict[str, Any]:
     """Clicks the link suggested by the analysis node, with fallbacks for accept buttons and nav links."""
-    print("--- Node: Click Link ---")
+    print(f"--- Node: Click Link ---", flush=True)
     
     # Retrieve the selector stored in the previous step
     selectors = state.get("search_selectors", {})
@@ -268,7 +276,7 @@ async def node_click_link(state: AgentState) -> Dict[str, Any]:
 
 async def node_perform_search(state: AgentState) -> Dict[str, Any]:
     """Identifies form elements and executes the search."""
-    print("--- Node: Perform Search ---")
+    print(f"--- Node: Perform Search ---", flush=True)
     
     structured_llm = llm.with_structured_output(SearchFormDetails)
     
@@ -559,7 +567,7 @@ async def handle_search_popups(page) -> bool:
 
 async def node_extract(state: AgentState) -> Dict[str, Any]:
     """Analyzes results and extracts data, then saves to CSV."""
-    print("--- Node: Extract ---")
+    print(f"--- Node: Extract ---", flush=True)
     
     # Brief wait for dynamic content to load
     print("Waiting for results to load...")
@@ -580,6 +588,11 @@ async def node_extract(state: AgentState) -> Dict[str, Any]:
     prompt = f"""
     You are analyzing a search results page AFTER a search was executed.
     Your task is to find and identify the search results data.
+    
+    CRITICAL SELECTOR RULES FOR `row_selector`:
+    1. NEVER use the ':contains()' selector (it is not valid CSS).
+    2. Use ':has-text()' for Playwright text matching if needed.
+    3. Prefer standard CSS: #id, .class, [name='value'], or a[title*='value'].
     
     LOOK FOR:
     1. A table or grid displaying results (rows of data)
@@ -676,7 +689,13 @@ async def node_extract(state: AgentState) -> Dict[str, Any]:
     # Extract data from rows (runs for both primary and fallback selectors)
     if len(rows) > 0:
         print(f"Extracting data from {len(rows)} rows...")
-        for i, row in enumerate(rows[:50]):  # Limit to 50 rows
+        first_row_only = True # User requested limit to 1 record
+    
+        for i, row in enumerate(rows):
+            if first_row_only and i >= 1:
+                print("Limit reached: stopping after 1st record.")
+                break
+            
             try:
                 # Get all cell data from the row
                 cells = await row.query_selector_all("td, th")

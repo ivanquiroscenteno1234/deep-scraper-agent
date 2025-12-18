@@ -26,13 +26,13 @@ def compile_steps_to_script(steps: list, county_name: str, search_variable: str 
             
         elif action_type == 'click':
             # Add strict error handling for clicks
-            script_body += f'        page.wait_for_selector("{selector}", timeout=5000)\n'
+            script_body += f'        page.wait_for_selector("{selector}", timeout=2000)\n'
             script_body += f'        page.click("{selector}")\n'
             script_body += '        page.wait_for_load_state("networkidle")\n'
             
         elif action_type == 'fill':
             # Add strict error handling for fills
-            script_body += f'        page.wait_for_selector("{selector}", timeout=5000)\n'
+            script_body += f'        page.wait_for_selector("{selector}", timeout=2000)\n'
             
             # Smart Variable Replacement
             if search_variable and value and search_variable.lower() in value.lower():
@@ -62,7 +62,7 @@ def scrape_{county_name.replace(' ', '_').lower()}(builder_name: str) -> str:
         browser = p.chromium.launch(headless=False)
         context = browser.new_context()
         page = context.new_page()
-        page.set_default_timeout(60000)
+        page.set_default_timeout(2000)
         
         try:
 {script_body}
@@ -71,7 +71,7 @@ def scrape_{county_name.replace(' ', '_').lower()}(builder_name: str) -> str:
             print("Extacting data...")
             
             # Wait for any table
-            page.wait_for_selector("table", timeout=5000)
+            page.wait_for_selector("table", timeout=2000)
             
             # Try to find the results table
             tables = page.locator("table")
