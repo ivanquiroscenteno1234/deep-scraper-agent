@@ -1,12 +1,24 @@
-"""LangGraph engine and node definitions."""
+"""LangGraph MCP engine and node definitions."""
 
-from deep_scraper.graph.engine import app
-from deep_scraper.graph.nodes import (
-    node_navigate,
-    node_analyze,
-    node_click_link,
-    node_perform_search,
-    node_extract
+from deep_scraper.graph.mcp_engine import mcp_app as app
+
+from deep_scraper.graph.mcp_nodes import (
+    node_navigate_mcp,
+    node_analyze_mcp,
+    node_click_link_mcp,
+    node_perform_search_mcp,
+    node_capture_columns_mcp,
+    node_generate_script_mcp,
+    node_escalate
 )
 
-__all__ = ["app", "node_navigate", "node_analyze", "node_click_link", "node_perform_search", "node_extract"]
+__all__ = [
+    "app", 
+    "node_navigate_mcp", 
+    "node_analyze_mcp", 
+    "node_click_link_mcp", 
+    "node_perform_search_mcp", 
+    "node_capture_columns_mcp", 
+    "node_generate_script_mcp",
+    "node_escalate"
+]

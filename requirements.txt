@@ -6,3 +6,5 @@ beautifulsoup4
 pydantic
 python-dotenv
 html2text
+crawl4ai
+httpx

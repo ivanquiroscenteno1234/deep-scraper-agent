@@ -1,128 +1,199 @@
-import json
+"""
+Script Compiler - Generates Playwright scripts from recorded steps.
 
-def compile_steps_to_script(steps: list, county_name: str, search_variable: str = None) -> str:
+Compiles recorded MCP steps into a standalone Python script that can
+navigate and extract data from county clerk websites.
+
+See .agent/workflows/project-specification.md for workflow details.
+"""
+
+import json
+from typing import Dict, List, Optional
+
+
+def compile_steps_to_script(
+    steps: List[Dict],
+    county_name: str,
+    search_variable: str = None,
+    column_mapping: Dict[str, str] = None,
+    grid_selector: str = None
+) -> str:
     """
-    Compiles a list of recorded VisualAction steps into a robust Python Playwright script.
+    Compile recorded steps into a Playwright script.
     
     Args:
-        steps: List of recorded steps
+        steps: List of recorded steps from MCP codegen
         county_name: Name of the county (for function naming)
-        search_variable: The specific value (e.g. "Lauren Smith") that should be replaced with the 'builder_name' variable
+        search_variable: Search term to replace with variable
+        column_mapping: Map of column names to use for extraction
+        grid_selector: CSS selector for the results grid
+        
+    Returns:
+        Complete Python script as a string
     """
+    
+    grid_selector = grid_selector or "#RsltsGrid table"
+    column_mapping = column_mapping or {}
     
     script_body = ""
     
     for step in steps:
-        action_type = step.get('action_type')
-        selector = step.get('selector')
-        value = step.get('value')
-        reasoning = step.get('reasoning', '')
+        # MCP steps use 'action', old steps use 'action_type'
+        action = step.get('action') or step.get('action_type', '')
+        selector = step.get('selector', '')
+        value = step.get('value', '')
+        url = step.get('url', '')
+        description = step.get('description', '')
         
-        script_body += f"\n        # {reasoning}\n"
+        if description:
+            script_body += f"\n        # {description}\n"
         
-        if action_type == 'navigate':
-            script_body += f'        page.goto("{value}")\n'
+        if action in ('goto', 'navigate'):
+            target_url = url or value
+            script_body += f'        page.goto("{target_url}")\n'
             script_body += '        page.wait_for_load_state("networkidle")\n'
             
-        elif action_type == 'click':
-            # Add strict error handling for clicks
-            script_body += f'        page.wait_for_selector("{selector}", timeout=2000)\n'
+        elif action == 'click':
+            script_body += f'        page.wait_for_selector("{selector}", timeout=5000)\n'
             script_body += f'        page.click("{selector}")\n'
             script_body += '        page.wait_for_load_state("networkidle")\n'
             
-        elif action_type == 'fill':
-            # Add strict error handling for fills
-            script_body += f'        page.wait_for_selector("{selector}", timeout=2000)\n'
+        elif action == 'fill':
+            script_body += f'        page.wait_for_selector("{selector}", timeout=5000)\n'
             
-            # Smart Variable Replacement
-            if search_variable and value and search_variable.lower() in value.lower():
-                # If the filled value contains the search variable, use the python variable
-                script_body += f'        page.fill("{selector}", builder_name)\n'
-                script_body += f'        # Note: Replaced hardcoded "{value}" with variable\n'
+            # Replace {{SEARCH_TERM}} placeholder or specific search value
+            if value == "{{SEARCH_TERM}}":
+                script_body += f'        page.fill("{selector}", search_term)\n'
+            elif search_variable and value and search_variable.lower() in value.lower():
+                script_body += f'        page.fill("{selector}", search_term)\n'
+                script_body += f'        # Replaced "{value}" with variable\n'
             else:
                 script_body += f'        page.fill("{selector}", "{value}")\n'
-            
-        elif action_type == 'wait':
+                
+        elif action == 'wait':
             script_body += '        page.wait_for_timeout(2000)\n'
+            
+        elif action == 'capture_grid':
+            # Skip meta-step, handled by extraction logic below
+            pass
 
-    # Template
-    template = f'''
-from playwright.sync_api import sync_playwright, Page
-import typing
+    # Build column list for headers
+    column_list = list(column_mapping.values()) if column_mapping else []
+    columns_json = json.dumps(column_list) if column_list else '[]'
+    
+    # Generate function name from county
+    func_name = county_name.replace(' ', '_').replace('-', '_').lower()
+    
+    template = f'''"""
+Playwright script for {county_name} county clerk records.
+Generated by Deep Scraper Agent.
+
+Usage:
+    python {func_name}_scraper.py "Search Term"
+"""
+
+from playwright.sync_api import sync_playwright
 import pandas as pd
 import datetime
+import sys
+import json
 
-def scrape_{county_name.replace(' ', '_').lower()}(builder_name: str) -> str:
+
+def scrape_{func_name}(search_term: str) -> str:
     """
-    Scrapes {county_name} records for a builder and saves results to CSV.
+    Scrape {county_name} records for a given search term.
+    
+    Args:
+        search_term: Name to search for
+        
+    Returns:
+        Path to CSV file with results
     """
     results = []
+    expected_columns = {columns_json}
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
         context = browser.new_context()
         page = context.new_page()
-        page.set_default_timeout(2000)
+        page.set_default_timeout(10000)
         
         try:
 {script_body}
             
-            # --- DATA EXTRACTION LOGIC (Generic Table Scraper) ---
-            print("Extacting data...")
+            # --- Wait for results grid ---
+            print("Waiting for results grid...")
+            page.wait_for_selector("{grid_selector}", timeout=15000)
+            page.wait_for_timeout(2000)  # Allow full render
             
-            # Wait for any table
-            page.wait_for_selector("table", timeout=2000)
+            # --- Extract data from grid ---
+            print("Extracting data...")
             
-            # Try to find the results table
-            tables = page.locator("table")
-            count = tables.count()
+            # Find the grid
+            grid = page.locator("{grid_selector}")
             
-            if count > 0:
-                # Assume the largest table (by rows) is the results table
-                target_table = tables.nth(0) 
+            # Get headers
+            headers = []
+            header_cells = grid.locator("thead th, tr:first-child th")
+            if header_cells.count() > 0:
+                for i in range(header_cells.count()):
+                    headers.append(header_cells.nth(i).inner_text().strip())
+            
+            # Use expected columns if no headers found
+            if not headers and expected_columns:
+                headers = expected_columns
+            
+            # Get data rows
+            rows = grid.locator("tbody tr")
+            row_count = rows.count()
+            print(f"Found {{row_count}} rows")
+            
+            for i in range(row_count):
+                row = rows.nth(i)
+                cells = row.locator("td")
                 
-                # Extract headers
-                headers = []
-                header_cells = target_table.locator("th")
-                if header_cells.count() > 0:
-                    for i in range(header_cells.count()):
-                        headers.append(header_cells.nth(i).inner_text().strip())
-                
-                # Extract rows
-                rows = target_table.locator("tr")
-                for i in range(1, rows.count()): # Skip header usually
-                    cells = rows.nth(i).locator("td")
+                if cells.count() > 0:
                     row_data = {{}}
-                    
-                    if cells.count() > 0:
-                        for j in range(cells.count()):
-                            header = headers[j] if j < len(headers) else f"col_{{j}}"
-                            row_data[header] = cells.nth(j).inner_text().strip()
-                        results.append(row_data)
-                        
-            # Save to CSV
+                    for j in range(cells.count()):
+                        header = headers[j] if j < len(headers) else f"col_{{j}}"
+                        row_data[header] = cells.nth(j).inner_text().strip()
+                    results.append(row_data)
+            
+            # Save results
             if results:
                 df = pd.DataFrame(results)
                 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                # Use the actual builder_name in filename
-                safe_name = "".join([c for c in builder_name if c.isalnum() or c in (' ', '_')]).strip().replace(' ', '_')
+                safe_name = "".join([c for c in search_term if c.isalnum() or c in (' ', '_')]).strip().replace(' ', '_')
                 filename = f"results_{{safe_name}}_{{timestamp}}.csv"
                 df.to_csv(filename, index=False)
-                print(f"Successfully scraped {{len(results)}} records. Saved to {{filename}}")
+                print(f"Saved {{len(results)}} records to {{filename}}")
+                
+                # Also save as JSON
+                json_filename = filename.replace('.csv', '.json')
+                with open(json_filename, 'w') as f:
+                    json.dump(results, f, indent=2)
+                
                 return filename
             else:
                 print("No results found.")
                 return None
                 
         except Exception as e:
-            print(f"Error during execution: {{e}}")
-            page.screenshot(path="error.png")
+            print(f"Error: {{e}}")
+            page.screenshot(path="error_screenshot.png")
             raise e
         finally:
             browser.close()
 
+
 if __name__ == "__main__":
-    # Test with default name from recording
-    scrape_{county_name.replace(' ', '_').lower()}("{search_variable if search_variable else 'Test Name'}")
+    if len(sys.argv) > 1:
+        search = sys.argv[1]
+    else:
+        search = "{search_variable or 'Test Name'}"
+    
+    result = scrape_{func_name}(search)
+    if result:
+        print(f"Done! Results saved to: {{result}}")
 '''
     return template

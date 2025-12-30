@@ -1,33 +1,48 @@
+"""
+Agent State - TypedDict defining the state for the Deep Scraper agent.
+
+See .agent/workflows/project-specification.md for workflow details.
+"""
+
 from typing import TypedDict, List, Dict, Optional, Any
+
 
 class AgentState(TypedDict):
     """
-    Represents the state of the Deep Scraper agent.
+    State of the Deep Scraper agent.
     
-    Attributes:
-        target_url: The starting URL for the navigation.
-        search_query: The term to search for (e.g., "Smith").
-        current_page_summary: Markdown text summary of the current page content.
-        logs: History of actions taken by the agent.
-        attempt_count: Circuit breaker counter.
-        status: High-level status of the agent.
-        extracted_data: List of extracted records.
-        search_selectors: Dict to store identified form selectors (input/submit).
-        generated_script_path: Path to the generated Playwright script.
-        generated_script_code: The actual Python code of the generated script.
-        script_test_attempts: Number of times we've tried to test/fix the script.
-        script_error: Error message from failed script execution.
+    Core fields for navigation and step recording:
+    - target_url: Starting URL
+    - search_query: Term to search
+    - recorded_steps: List of actions for script generation
+    - column_mapping: Grid column names identified by LLM
     """
+    # Core navigation
     target_url: str
     search_query: str
     current_page_summary: str
-    logs: List[str]
+    
+    # Control flow
+    status: str  # NAVIGATING, SEARCH_PAGE_FOUND, SEARCH_EXECUTED, SCRIPT_GENERATED, FAILED
     attempt_count: int
-    status: str  # Enum: "NAVIGATING", "SEARCH_PAGE_FOUND", "SEARCH_EXECUTED", "COMPLETED", "FAILED"
-    extracted_data: List[Dict[str, Any]]
+    healing_attempts: int
+    needs_human_review: bool
+    
+    # Step recording (key for script generation)
+    recorded_steps: List[Dict[str, Any]]
     search_selectors: Optional[Dict[str, str]]
+    column_mapping: Dict[str, str]
+    
+    # Output
     generated_script_path: Optional[str]
     generated_script_code: Optional[str]
+    extracted_data: List[Dict[str, Any]]
+    
+    # Logging
+    logs: List[str]
+    
+    # Script testing (optional)
     script_test_attempts: int
     script_error: Optional[str]
-
+    thought_signature: Optional[str]
+    grid_html: Optional[str]
