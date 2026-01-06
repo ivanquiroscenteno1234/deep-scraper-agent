@@ -128,11 +128,26 @@ class PlaywrightMCPClient:
         try:
             result = await self._session.call_tool(tool_name, arguments=params)
             
-            # Extract content from result
+            # Extract content from result - some tools return multiple TextContent items
             if result and result.content:
+                text_parts = []
                 for content in result.content:
                     if hasattr(content, 'text'):
-                        return {"result": content.text}
+                        text_parts.append(content.text)
+                
+                if text_parts:
+                    # If it's Playwright evaluate, it often returns ["Executed JavaScript:", "script", "Result:", "actual_result"]
+                    if tool_name == "playwright_evaluate" and len(text_parts) >= 4 and text_parts[2] == "Result:":
+                        val = text_parts[3].strip()
+                        # Some versions return a quoted string
+                        if val.startswith('"') and val.endswith('"'):
+                            val = val[1:-1].replace('\\n', '\n').replace('\\"', '"')
+                        return {"result": val}
+                    
+                    # Fallback: join all text parts
+                    full_text = "\n".join(text_parts)
+                    return {"result": full_text}
+                
                 return {"result": str(result.content)}
             return {"result": None}
             
@@ -268,12 +283,12 @@ class PlaywrightMCPClient:
         return await self.call_tool("playwright_fill", {"selector": selector, "value": value})
     
     async def get_snapshot(self) -> Dict[str, Any]:
-        """Get visible text of the page."""
-        return await self.call_tool("playwright_get_visible_text", {})
+        """Get visible text of the page using JS evaluation."""
+        return await self.call_tool("playwright_evaluate", {"script": "document.body.innerText"})
     
     async def get_html(self) -> Dict[str, Any]:
-        """Get visible HTML of the page."""
-        return await self.call_tool("playwright_get_visible_html", {})
+        """Get visible HTML of the page using JS evaluation."""
+        return await self.call_tool("playwright_evaluate", {"script": "document.documentElement.outerHTML"})
     
     async def screenshot(self, name: str = "screenshot", full_page: bool = False) -> Dict[str, Any]:
         """Take a screenshot of the page."""

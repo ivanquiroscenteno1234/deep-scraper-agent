@@ -150,27 +150,30 @@ class MCPBrowserAdapter:
     
     async def get_snapshot(self) -> Dict[str, Any]:
         """
-        Get page HTML for LLM analysis.
+        Get page HTML and text for LLM analysis.
         
-        Uses playwright_get_visible_html which returns the visible DOM.
-        Note: This may return cached content - see project-specification.md
+        Uses playwright_evaluate via client methods to get robust DOM content.
         """
         if not self.mcp:
             return {}
         
         try:
-            result = await self.mcp.call_tool("playwright_get_visible_html", {})
-            html_content = result.get("result", "")
-            return {"html": html_content, "result": html_content}
+            # Get HTML
+            html_result = await self.mcp.get_html()
+            html_content = html_result.get("result", "")
+            
+            # Get Text
+            text_result = await self.mcp.get_snapshot()
+            text_content = text_result.get("result", "")
+            
+            return {
+                "html": html_content,
+                "text": text_content,
+                "result": html_content # Default for analysis
+            }
         except Exception as e:
             print(f"⚠️ Failed to get snapshot: {e}")
-            # Fallback to visible text
-            try:
-                result = await self.mcp.call_tool("playwright_get_visible_text", {})
-                text_content = result.get("result", "")
-                return {"text": text_content, "result": text_content}
-            except:
-                return {}
+            return {}
     
     async def click_element(self, selector: str, description: str = "") -> bool:
         """
@@ -221,6 +224,20 @@ class MCPBrowserAdapter:
         except Exception as e:
             print(f"❌ Press key failed: {e}")
             return False
+
+    async def evaluate(self, script: str) -> Any:
+        """Execute JavaScript on the page."""
+        if not self.mcp:
+            return None
+        
+        try:
+            result = await self.mcp.call_tool("playwright_evaluate", {"script": script})
+            if isinstance(result, dict):
+                return result.get("result")
+            return result
+        except Exception as e:
+            print(f"❌ Evaluate failed: {e}")
+            return None
     
     async def screenshot(self, path: str = None) -> Optional[bytes]:
         """Take a screenshot."""
@@ -273,12 +290,30 @@ class MCPBrowserAdapter:
             try:
                 if self._codegen_started:
                     await self.end_codegen_session()
+                
+                # Explicitly close the browser via MCP to clear cookies/state
+                try:
+                    await self.mcp.close()
+                    print("🔒 Browser closed via MCP")
+                except Exception as e:
+                    print(f"⚠️ Browser close warning: {e}")
+                
                 await self.mcp.disconnect()
             except Exception:
                 pass
         
         self._launched = False
         self._codegen_started = False
+        self._current_url = None
+    
+    async def reset(self):
+        """Full reset - close browser, disconnect, and reset singleton."""
+        await self.close()
+        # Reset the underlying client too
+        from .mcp_client import reset_mcp_client
+        await reset_mcp_client()
+        self.mcp = None
+        print("🔄 Browser adapter fully reset")
 
 
 # Global adapter instance

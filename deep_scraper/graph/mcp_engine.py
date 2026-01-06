@@ -2,11 +2,15 @@
 MCP-enabled Engine - Runs the scraper workflow using Playwright MCP.
 
 Uses MCP for navigation and LLM for script generation with test/fix loop.
+
+Now imports from modular nodes/ package for better maintainability.
 """
 
 from langgraph.graph import StateGraph, END
 from deep_scraper.core.state import AgentState
-from deep_scraper.graph.mcp_nodes import (
+
+# Import from modular nodes package
+from deep_scraper.graph.nodes import (
     node_navigate_mcp,
     node_analyze_mcp,
     node_click_link_mcp,
@@ -23,10 +27,20 @@ def should_search_or_click(state: AgentState):
     """Decides the next node based on the analysis of the current page."""
     status = state.get("status")
     attempt_count = state.get("attempt_count", 0)
+    disclaimer_click_attempts = state.get("disclaimer_click_attempts", 0)
     
+    # Circuit breakers
     if attempt_count > 5:
-        print("Circuit Breaker Tripped!")
+        print("⚡ Circuit Breaker: Too many navigation attempts")
         return "end"
+    
+    if disclaimer_click_attempts >= 5:
+        print("⚡ Circuit Breaker: Too many disclaimer click attempts")
+        return "escalate"
+    
+    if status == "FAILED":
+        print("❌ Node returned FAILED status - escalating")
+        return "escalate"
     
     if status == "LOGIN_REQUIRED":
         print("🔐 Login required - cannot proceed")
@@ -53,7 +67,10 @@ def check_search_status(state: AgentState):
     if status == "SEARCH_EXECUTED":
         return "capture_columns"
     elif status == "FAILED":
-        return "escalate"
+        # If search failed (e.g. no grid found), go back to analyze 
+        # to see where we are and try again.
+        print("🔍 Search failed to find results - re-analyzing page...")
+        return "analyze"
     else:
         return "end"
 
@@ -111,12 +128,17 @@ mcp_workflow.add_conditional_edges(
     }
 )
 
-mcp_workflow.add_edge("click_link", "navigate")
+mcp_workflow.add_edge("click_link", "analyze")
 
 mcp_workflow.add_conditional_edges(
     "perform_search",
     check_search_status,
-    {"capture_columns": "capture_columns", "escalate": "escalate", "end": END}
+    {
+        "capture_columns": "capture_columns", 
+        "analyze": "analyze",
+        "escalate": "escalate", 
+        "end": END
+    }
 )
 
 mcp_workflow.add_edge("capture_columns", "generate_script")
@@ -180,7 +202,10 @@ async def run_mcp_scraper(url: str, search_query: str):
         healing_attempts=0,
         needs_human_review=False,
         recorded_steps=[],
-        column_mapping={}
+        column_mapping={},
+        # Memory for click loop prevention
+        disclaimer_click_attempts=0,
+        clicked_selectors=[]
     )
     
     final_state = None
@@ -190,52 +215,3 @@ async def run_mcp_scraper(url: str, search_query: str):
             final_state = value
     
     return final_state
-
-
-if __name__ == "__main__":
-    import asyncio
-    import os
-    
-    if os.name == 'nt':
-        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-    
-    async def main():
-        print("Starting MCP-enabled Deep Scraper...")
-        print("Make sure MCP server is running: npx @executeautomation/playwright-mcp-server")
-        
-        try:
-            result = await run_mcp_scraper(
-                url="https://vaclmweb1.brevardclerk.us/AcclaimWeb/search/SearchTypeName",
-                search_query="Lauren Homes"
-            )
-            print("\n=== Workflow Complete ===")
-            print(f"Script path: {result.get('generated_script_path')}")
-        except Exception as e:
-            print(f"Error: {e}")
-    
-    async def main_wrapper():
-        # Set custom exception handler to ignore shutdown noise
-        loop = asyncio.get_running_loop()
-        def handle_exception(loop, context):
-            msg = context.get("message", "")
-            exception = context.get("exception")
-            exc_str = str(exception or "")
-            if "Event loop is closed" in msg or "cancel scope" in exc_str or "CancelledError" in exc_str:
-                return
-            loop.default_exception_handler(context)
-        loop.set_exception_handler(handle_exception)
-        
-        try:
-            await main()
-        finally:
-            # Final silent cleanup
-            pass
-
-    try:
-        asyncio.run(main_wrapper())
-    except Exception:
-        # Prevent any exit noise on Windows
-        pass
-    except BaseException:
-        # Catch KeyboardInterrupt etc.
-        pass

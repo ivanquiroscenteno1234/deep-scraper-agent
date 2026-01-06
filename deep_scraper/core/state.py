@@ -20,6 +20,8 @@ class AgentState(TypedDict):
     # Core navigation
     target_url: str
     search_query: str
+    start_date: str
+    end_date: str
     current_page_summary: str
     
     # Control flow
@@ -44,5 +46,10 @@ class AgentState(TypedDict):
     # Script testing (optional)
     script_test_attempts: int
     script_error: Optional[str]
+    discovered_grid_selectors: List[str]
     thought_signature: Optional[str]
+    
+    # Disclaimer/click loop prevention
+    disclaimer_click_attempts: int  # How many times we've clicked accept buttons
+    clicked_selectors: List[str]    # Selectors we've already tried clicking
     grid_html: Optional[str]
