@@ -37,7 +37,7 @@ def simplify_dom(html_content: str) -> str:
     interactables = soup.find_all(['input', 'button', 'select', 'textarea', 'a', 'label'])
     
     # Process interactables
-    simplified_html = ""
+    simplified_html_parts = []
     
     for tag in interactables:
         clean_attrs(tag)
@@ -49,8 +49,13 @@ def simplify_dom(html_content: str) -> str:
                 continue
         
         # Add to output
-        simplified_html += str(tag) + "\n"
-        
+        simplified_html_parts.append(str(tag))
+
+    if simplified_html_parts:
+        simplified_html = "\n".join(simplified_html_parts) + "\n"
+    else:
+        simplified_html = ""
+
     # Also keep some structural context if possible (like headers to identify sections)
     # But for a strict interactable list, the above loop is good.
     # Let's try to preserve a BIT of structure by traversing and keeping only what matters?
