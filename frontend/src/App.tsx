@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Play, Terminal, Database, FileCode, Loader2, Search, Download, Table, ChevronRight, FolderOpen, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Play, Terminal, Database, FileCode, Loader2, Search, Download, Table, FolderOpen, RefreshCw } from 'lucide-react';
 
 interface LogEntry {
   text: string;
