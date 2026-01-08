@@ -23,6 +23,39 @@ from deep_scraper.graph.nodes.config import (
     COLUMN_HTML_LIMIT,
 )
 
+# --- Pre-compiled Regex Patterns for Performance ---
+# By compiling regexes at the module level, we avoid re-compiling them on every function call.
+# This provides a significant performance boost when these functions are called frequently.
+
+# For filter_hidden_columns_from_html
+_TH_PATTERN = re.compile(r'<th([^>]*)>(.*?)</th>', re.IGNORECASE | re.DOTALL)
+_HIDDEN_PATTERNS = [
+    re.compile(r'class\s*=\s*["\'][^"\']*\b(hidden|hide)\b[^"\']*["\']', re.IGNORECASE),
+    re.compile(r'style\s*=\s*["\'][^"\']*display\s*:\s*none[^"\']*["\']', re.IGNORECASE),
+    re.compile(r'style\s*=\s*["\'][^"\']*visibility\s*:\s*hidden[^"\']*["\']', re.IGNORECASE),
+]
+_HIDDEN_CELL_PATTERN = re.compile(
+    r'<(th|td)\s+[^>]*class\s*=\s*["\'][^"\']*\b(hidden|hide)\b[^"\']*["\'][^>]*>.*?</\1>',
+    re.IGNORECASE | re.DOTALL
+)
+_HIDDEN_STYLE_PATTERN = re.compile(
+    r'<(th|td)\s+[^>]*style\s*=\s*["\'][^"\']*display\s*:\s*none[^"\']*["\'][^>]*>.*?</\1>',
+    re.IGNORECASE | re.DOTALL
+)
+
+# For node_capture_columns_mcp
+_JSON_PATTERN = re.compile(r'\{.*\}', re.DOTALL)
+_TABLE_PATTERN = re.compile(r'<table[^>]*>.*?</table>', re.DOTALL | re.IGNORECASE)
+
+# ID-based patterns for grid selectors (pre-compiled)
+_GRID_ID_PATTERNS = [
+    (re.compile(r'id=["\']RsltsGrid["\']', re.IGNORECASE), '#RsltsGrid'),
+    (re.compile(r'id=["\']SearchGrid["\']', re.IGNORECASE), '#SearchGrid'),
+    (re.compile(r'id=["\']gridMain["\']', re.IGNORECASE), '#gridMain'),
+    (re.compile(r'id=["\']resultsTable["\']', re.IGNORECASE), '#resultsTable'),
+    (re.compile(r'id=["\']grdSearchResults["\']', re.IGNORECASE), '#grdSearchResults'),
+]
+
 
 def filter_hidden_columns_from_html(html: str) -> Tuple[str, List[int]]:
     """
@@ -37,25 +70,15 @@ def filter_hidden_columns_from_html(html: str) -> Tuple[str, List[int]]:
     """
     # Find all table header cells and track which are visible
     visible_indices = []
-    
-    # Pattern to find <th> tags with their attributes
-    th_pattern = re.compile(r'<th([^>]*)>(.*?)</th>', re.IGNORECASE | re.DOTALL)
-    
-    # Patterns indicating a hidden column
-    hidden_patterns = [
-        r'class\s*=\s*["\'][^"\']*\b(hidden|hide)\b[^"\']*["\']',  # class="hidden", class="hide col"
-        r'style\s*=\s*["\'][^"\']*display\s*:\s*none[^"\']*["\']',  # style="display:none"
-        r'style\s*=\s*["\'][^"\']*visibility\s*:\s*hidden[^"\']*["\']',  # style="visibility:hidden"
-    ]
-    
+
     def is_hidden(attrs: str) -> bool:
-        for pattern in hidden_patterns:
-            if re.search(pattern, attrs, re.IGNORECASE):
+        for pattern in _HIDDEN_PATTERNS:
+            if pattern.search(attrs):
                 return True
         return False
     
     # Process table headers to find visible column indices
-    all_ths = th_pattern.findall(html)
+    all_ths = _TH_PATTERN.findall(html)
     for i, (attrs, content) in enumerate(all_ths):
         if not is_hidden(attrs):
             visible_indices.append(i)
@@ -66,18 +89,10 @@ def filter_hidden_columns_from_html(html: str) -> Tuple[str, List[int]]:
     
     # Remove entire hidden <th> and <td> elements from sample HTML for cleaner LLM analysis
     # Match th/td with hidden class and remove them
-    hidden_cell_pattern = re.compile(
-        r'<(th|td)\s+[^>]*class\s*=\s*["\'][^"\']*\b(hidden|hide)\b[^"\']*["\'][^>]*>.*?</\1>',
-        re.IGNORECASE | re.DOTALL
-    )
-    filtered_html = hidden_cell_pattern.sub('', filtered_html)
+    filtered_html = _HIDDEN_CELL_PATTERN.sub('', filtered_html)
     
     # Also remove cells with inline display:none
-    hidden_style_pattern = re.compile(
-        r'<(th|td)\s+[^>]*style\s*=\s*["\'][^"\']*display\s*:\s*none[^"\']*["\'][^>]*>.*?</\1>',
-        re.IGNORECASE | re.DOTALL
-    )
-    filtered_html = hidden_style_pattern.sub('', filtered_html)
+    filtered_html = _HIDDEN_STYLE_PATTERN.sub('', filtered_html)
     
     return filtered_html, visible_indices
 
@@ -114,17 +129,9 @@ async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
     # Discover grid selectors from HTML
     discovered_selectors = []
     
-    # ID-based patterns
-    grid_id_patterns = [
-        (r'id=["\']RsltsGrid["\']', '#RsltsGrid'),
-        (r'id=["\']SearchGrid["\']', '#SearchGrid'),
-        (r'id=["\']gridMain["\']', '#gridMain'),
-        (r'id=["\']resultsTable["\']', '#resultsTable'),
-        (r'id=["\']grdSearchResults["\']', '#grdSearchResults'),
-    ]
-    
-    for pattern, selector in grid_id_patterns:
-        if re.search(pattern, raw_content, re.IGNORECASE):
+    # ID-based patterns (using pre-compiled regex for performance)
+    for pattern, selector in _GRID_ID_PATTERNS:
+        if pattern.search(raw_content):
             if selector not in discovered_selectors:
                 discovered_selectors.append(selector)
                 log.debug(f"Found grid ID: {selector}")
@@ -185,7 +192,8 @@ Return JSON ONLY:
     first_data_column_index = 0
     
     try:
-        json_match = re.search(r'\{.*\}', response, re.DOTALL)
+        # Using pre-compiled regex for performance
+        json_match = _JSON_PATTERN.search(response)
         if json_match:
             parsed = json.loads(json_match.group())
             llm_grid_selector = parsed.get("grid_selector", "")
@@ -236,8 +244,8 @@ Return JSON ONLY:
     grid_html = filtered_html[:20000]
     if grid_selector:
         try:
-            # Simple extraction of table content
-            table_match = re.search(r'<table[^>]*>.*?</table>', filtered_html, re.DOTALL | re.IGNORECASE)
+            # Simple extraction of table content (using pre-compiled regex for performance)
+            table_match = _TABLE_PATTERN.search(filtered_html)
             if table_match:
                 grid_html = table_match.group(0)[:30000]
         except Exception:
