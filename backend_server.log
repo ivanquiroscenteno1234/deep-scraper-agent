@@ -1,0 +1,11 @@
+🤖 LLM Init: Model=gemini-1.5-pro, Key=dummy...ummy
+INFO:     Started server process [3387]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8006 (Press CTRL+C to quit)
+DEBUG: Executing script backend/sleep_script.py
+DEBUG: Query='test', Start='01/01/2020', End='01/01/2021'
+INFO:     127.0.0.1:44806 - "POST /api/execute-script HTTP/1.1" 200 OK
+INFO:     127.0.0.1:44806 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33224 - "POST /api/execute-script HTTP/1.1" 200 OK
+INFO:     127.0.0.1:33224 - "GET /health HTTP/1.1" 200 OK
