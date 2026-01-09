@@ -56,6 +56,20 @@ _GRID_ID_PATTERNS = [
     (re.compile(r'id=["\']grdSearchResults["\']', re.IGNORECASE), '#grdSearchResults'),
 ]
 
+# BOLT ⚡: Optimized class-based selector discovery.
+# This single regex finds all common grid class names in one pass,
+# which is much faster than iterating and running 'in' checks on the full HTML content.
+_GRID_CLASS_MAP = {
+    't-grid': '.t-grid',
+    'datatable': 'table.dataTable',
+    'ig_electricbluecontrol': '.ig_ElectricBlueControl',
+    'search-results__results-wrap': '.search-results__results-wrap',
+}
+_GRID_CLASS_PATTERN = re.compile(
+    r'class\s*=\s*["\'][^"\']*\b(' + '|'.join(_GRID_CLASS_MAP.keys()) + r')\b[^"\']*["\']',
+    re.IGNORECASE
+)
+
 
 def filter_hidden_columns_from_html(html: str) -> Tuple[str, List[int]]:
     """
@@ -136,19 +150,13 @@ async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
                 discovered_selectors.append(selector)
                 log.debug(f"Found grid ID: {selector}")
     
-    # Class-based patterns
-    class_patterns = [
-        ('t-grid', '.t-grid'),
-        ('dataTable', 'table.dataTable'),
-        ('ig_ElectricBlueControl', '.ig_ElectricBlueControl'),
-        ('search-results__results-wrap', '.search-results__results-wrap'),
-    ]
-    
-    for class_name, selector in class_patterns:
-        if class_name in raw_content:
-            if selector not in discovered_selectors:
-                discovered_selectors.append(selector)
-                log.debug(f"Found grid class: {selector}")
+    # BOLT ⚡: Optimized class-based selector discovery using a single regex pass.
+    for match in _GRID_CLASS_PATTERN.finditer(raw_content):
+        class_name = match.group(1).lower()
+        selector = _GRID_CLASS_MAP.get(class_name)
+        if selector and selector not in discovered_selectors:
+            discovered_selectors.append(selector)
+            log.debug(f"Found grid class via optimized regex: {selector}")
     
     log.info(f"Discovered {len(discovered_selectors)} potential grid selectors")
     
