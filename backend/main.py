@@ -189,29 +189,39 @@ async def execute_script(request: ExecuteRequest):
     import re
     
     try:
-        # Run the script: python script.py "QUERY" "START" "END"
-        result = subprocess.run(
-            [sys.executable, request.script_path, request.search_query, request.start_date, request.end_date],
-            capture_output=True,
-            text=True,
-            timeout=180,
-            cwd=os.path.dirname(__file__)  # Run from backend dir so relative paths work
+        # BOLT ⚡: Replaced blocking subprocess.run with async create_subprocess_exec
+        # This prevents the long-running scraper from blocking the FastAPI event loop
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            request.script_path,
+            request.search_query,
+            request.start_date,
+            request.end_date,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=os.path.dirname(__file__)
         )
         
+        # Wait for the subprocess to complete with timeout
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(process.communicate(), timeout=180)
+
+        stdout_text = stdout_bytes.decode()
+        stderr_text = stderr_bytes.decode()
+
         # 1. Flexible Success Detection
-        stdout_upper = result.stdout.upper()
+        stdout_upper = stdout_text.upper()
         is_success = "SUCCESS" in stdout_upper or "[SUCCESS]" in stdout_upper or "[OK]" in stdout_upper
         
         # 2. Extract Row Count
         row_count = 0
-        row_match = re.search(r'(?:Extracted|Found|Saved|Saving)\s+(\d+)\s+(?:rows|records|items)', result.stdout, re.IGNORECASE)
+        row_match = re.search(r'(?:Extracted|Found|Saved|Saving)\s+(\d+)\s+(?:rows|records|items)', stdout_text, re.IGNORECASE)
         if row_match:
             row_count = int(row_match.group(1))
             
         # 3. CSV File Resolution
         csv_file = None
         # Try finding path in stdout - support multiple formats
-        csv_path_match = re.search(r'(?:saved to|CSV saved:|to|Saved)\s+([^\s]+\.csv)', result.stdout, re.IGNORECASE)
+        csv_path_match = re.search(r'(?:saved to|CSV saved:|to|Saved)\s+([^\s]+\.csv)', stdout_text, re.IGNORECASE)
         if csv_path_match:
             csv_file = csv_path_match.group(1).strip()
             
@@ -250,15 +260,15 @@ async def execute_script(request: ExecuteRequest):
                 "success": True,
                 "row_count": len(final_data) if final_data else row_count,
                 "data": final_data,
-                "stdout": result.stdout,
-                "stderr": result.stderr
+                "stdout": stdout_text,
+                "stderr": stderr_text
             }
         
         return {
             "success": False,
             "error": "Script execution failed or produced no valid data output",
-            "stdout": result.stdout,
-            "stderr": result.stderr
+            "stdout": stdout_text,
+            "stderr": stderr_text
         }
         
     except Exception as e:
