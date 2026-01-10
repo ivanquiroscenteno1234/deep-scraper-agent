@@ -158,18 +158,18 @@ class MCPBrowserAdapter:
             return {}
         
         try:
-            # Get HTML
-            html_result = await self.mcp.get_html()
+            # Concurrently fetch HTML and text content for efficiency
+            html_result, text_result = await asyncio.gather(
+                self.mcp.get_html(),
+                self.mcp.get_snapshot()
+            )
             html_content = html_result.get("result", "")
-            
-            # Get Text
-            text_result = await self.mcp.get_snapshot()
             text_content = text_result.get("result", "")
             
             return {
                 "html": html_content,
                 "text": text_content,
-                "result": html_content # Default for analysis
+                "result": html_content,  # Default for analysis
             }
         except Exception as e:
             print(f"⚠️ Failed to get snapshot: {e}")
