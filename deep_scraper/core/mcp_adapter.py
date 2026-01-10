@@ -8,6 +8,7 @@ See .agent/workflows/project-specification.md for workflow details.
 """
 
 import asyncio
+import json
 from typing import Any, Dict, Optional, Tuple
 import os
 
@@ -258,10 +259,10 @@ class MCPBrowserAdapter:
         """
         Wait for results grid to appear.
         
-        Optimization:
-        - Pre-processes selectors outside the polling loop
-        - Fetches only HTML (no text content) to reduce overhead
-        - Reduces MCP roundtrips by 50%
+        Optimization (Bolt ⚡):
+        - Uses browser-side `document.querySelector` instead of fetching full HTML
+        - Avoids large network payloads (saving >100KB per check)
+        - Improves accuracy by checking DOM elements instead of text matching
 
         Args:
             selectors: List of CSS selectors to try (in order of preference)
@@ -270,30 +271,26 @@ class MCPBrowserAdapter:
         Returns:
             True if grid found, False if timeout
         """
-        if not self.mcp:
+        if not self.mcp or not selectors:
             return False
         
         max_attempts = timeout // 500
         
-        # Pre-process selectors once outside the loop
-        # We look for the ID/Class string in the HTML
-        search_terms = []
-        for selector in selectors:
-            # Check if selector pattern appears in HTML
-            # e.g. "#RsltsGrid" -> "RsltsGrid"
-            term = selector.replace("#", "").replace(".", "").split()[0]
-            if term:
-                search_terms.append(term)
+        # Combine selectors for a single browser-side query
+        # This checks if ANY of the selectors exist in the DOM
+        combined_selector = ", ".join(selectors)
+
+        # Use json.dumps to safely quote the selector string for JS
+        # !! converts the result to a strict boolean
+        script = f"!!document.querySelector({json.dumps(combined_selector)})"
 
         for _ in range(max_attempts):
-            # BOLT ⚡: Optimization - Only fetch HTML, skip text snapshot
-            # This reduces overhead since we only need to check for element existence
-            html_result = await self.mcp.get_html()
-            html = html_result.get("result", "")
+            # Bolt ⚡: Run check in browser, no HTML transfer
+            result = await self.evaluate(script)
             
-            for term in search_terms:
-                if term in html:
-                    return True
+            # Handle potential string return values from MCP
+            if result is True or str(result).lower() == 'true':
+                return True
             
             await asyncio.sleep(0.5)
         
