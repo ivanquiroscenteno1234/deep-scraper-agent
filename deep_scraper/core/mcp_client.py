@@ -47,23 +47,29 @@ class PlaywrightMCPClient:
     
     async def is_server_running(self) -> bool:
         """Check if the MCP server is running by testing the port."""
-        # Try IPv6 first (some servers bind to ::1 on Windows)
+        # Bolt ⚡: Use asyncio.open_connection to prevent blocking the event loop
+        # Try IPv6 first
         try:
-            with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as s:
-                s.settimeout(2.0)
-                result = s.connect_ex(('::1', self.port))
-                if result == 0:
-                    return True
-        except Exception:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection('::1', self.port),
+                timeout=2.0
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (OSError, asyncio.TimeoutError, ConnectionRefusedError):
             pass
-        
+
         # Fallback to IPv4
         try:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(2.0)
-                result = s.connect_ex(('127.0.0.1', self.port))
-                return result == 0
-        except Exception:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection('127.0.0.1', self.port),
+                timeout=2.0
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (OSError, asyncio.TimeoutError, ConnectionRefusedError):
             return False
     
     async def connect(self) -> bool:
