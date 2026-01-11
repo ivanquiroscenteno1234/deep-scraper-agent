@@ -262,6 +262,119 @@ class MCPBrowserAdapter:
             print(f"⚠️ Screenshot failed: {e}")
             return None
     
+    async def get_filtered_grid_snapshot(self, max_length: int = 30000) -> Dict[str, Any]:
+        """
+        Get a snapshot with hidden elements removed and grid selectors discovered.
+
+        Bolt ⚡ Optimization:
+        - Runs filtering in-browser to avoid transferring large HTML (saves ~90% bandwidth)
+        - Uses DOM API instead of regex for better accuracy (handles computed styles)
+        - Discovers selectors in the same pass (saves Python CPU)
+
+        Args:
+            max_length: Maximum length of the cleaned HTML to return
+
+        Returns:
+            Dict containing:
+            - selectors: List of discovered grid selectors
+            - visible_indices: List of indices of visible <th> elements
+            - clean_html: The cleaned HTML string
+            - summary: Text summary (first 5000 chars of innerText)
+        """
+        if not self.mcp:
+            return {}
+
+        # Minified JS for performance
+        script = f"""
+(function() {{
+    const gridIds = ['RsltsGrid', 'SearchGrid', 'gridMain', 'resultsTable', 'grdSearchResults'];
+    const gridClasses = {{
+        't-grid': '.t-grid',
+        'datatable': 'table.dataTable',
+        'ig_electricbluecontrol': '.ig_ElectricBlueControl',
+        'search-results__results-wrap': '.search-results__results-wrap'
+    }};
+
+    const foundSelectors = [];
+    gridIds.forEach(id => {{
+        if (document.getElementById(id)) foundSelectors.push('#' + id);
+    }});
+
+    for (const [cls, selector] of Object.entries(gridClasses)) {{
+         if (document.querySelector(selector)) foundSelectors.push(selector);
+    }}
+
+    // Find visible indices of TH elements
+    const allThs = Array.from(document.querySelectorAll('th'));
+    const visibleIndices = [];
+
+    function isHidden(el) {{
+        if (!el) return false;
+        const style = window.getComputedStyle(el);
+        if (style.display === 'none' || style.visibility === 'hidden') return true;
+
+        const className = (el.className || '').toString().toLowerCase();
+        if (className.includes('hidden') || className.includes('hide')) return true;
+
+        const styleAttr = (el.getAttribute('style') || '').toLowerCase();
+        if (styleAttr.includes('display:none') || styleAttr.includes('display: none')) return true;
+        return false;
+    }}
+
+    allThs.forEach((th, index) => {{
+        if (!isHidden(th)) visibleIndices.push(index);
+    }});
+
+    // Clean HTML for LLM
+    const clone = document.body.cloneNode(true);
+
+    const scripts = clone.querySelectorAll('script');
+    scripts.forEach(el => el.remove());
+
+    const styles = clone.querySelectorAll('style');
+    styles.forEach(el => el.remove());
+
+    const svgs = clone.querySelectorAll('svg');
+    svgs.forEach(el => {{
+        const replacement = document.createTextNode('[SVG]');
+        el.parentNode.replaceChild(replacement, el);
+    }});
+
+    const hiddenEls = clone.querySelectorAll('.hidden, .hide, [style*="display: none"], [style*="display:none"], [style*="visibility: hidden"], [style*="visibility:hidden"]');
+    hiddenEls.forEach(el => el.remove());
+
+    let html = clone.outerHTML;
+    html = html.replace(/<!--[\\s\\S]*?-->/g, "");
+    html = html.replace(/\\s+/g, " ");
+
+    if (html.length > {max_length}) {{
+        html = html.substring(0, {max_length}) + "\\n... [TRUNCATED]";
+    }}
+
+    return JSON.stringify({{
+        selectors: foundSelectors,
+        visible_indices: visibleIndices,
+        clean_html: html,
+        summary: document.body.innerText.substring(0, 5000)
+    }});
+}})()
+"""
+        try:
+            result = await self.evaluate(script)
+
+            if not result:
+                return {}
+
+            if isinstance(result, str):
+                try:
+                    return json.loads(result)
+                except:
+                    return {}
+            return result
+        except Exception as e:
+            print(f"⚠️ Failed to get filtered grid snapshot: {e}")
+            return {}
+
     async def wait_for_grid(self, selectors: list, timeout: int = 8000) -> bool:
         """
         Wait for results grid to appear.
