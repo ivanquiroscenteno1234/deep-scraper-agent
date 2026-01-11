@@ -159,13 +159,20 @@ class MCPBrowserAdapter:
             return {}
         
         try:
-            # Concurrently fetch HTML and text content for efficiency
-            html_result, text_result = await asyncio.gather(
-                self.mcp.get_html(),
-                self.mcp.get_snapshot()
-            )
-            html_content = html_result.get("result", "")
-            text_content = text_result.get("result", "")
+            # Bolt ⚡ Optimization: Fetch both HTML and Text in a single MCP call
+            # This reduces network overhead and ensures atomic snapshot
+            result = await self.mcp.get_full_page_content()
+            data_str = result.get("result", "{}")
+
+            # Parse the JSON string returned by the browser
+            try:
+                data = json.loads(data_str)
+                html_content = data.get("html", "")
+                text_content = data.get("text", "")
+            except (json.JSONDecodeError, TypeError):
+                # Fallback for unexpected format
+                html_content = str(data_str)
+                text_content = ""
             
             return {
                 "html": html_content,
