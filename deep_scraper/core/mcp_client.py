@@ -295,6 +295,17 @@ class PlaywrightMCPClient:
     async def get_html(self) -> Dict[str, Any]:
         """Get visible HTML of the page using JS evaluation."""
         return await self.call_tool("playwright_evaluate", {"script": "document.documentElement.outerHTML"})
+
+    async def get_full_page_content(self) -> Dict[str, Any]:
+        """
+        Get both HTML and text content in a single call.
+
+        Bolt ⚡ Optimization:
+        - Reduces MCP network roundtrips by 50%
+        - Fetches both DOM and Text in one JS execution
+        """
+        script = "JSON.stringify({html: document.documentElement.outerHTML, text: document.body.innerText})"
+        return await self.call_tool("playwright_evaluate", {"script": script})
     
     async def screenshot(self, name: str = "screenshot", full_page: bool = False) -> Dict[str, Any]:
         """Take a screenshot of the page."""
