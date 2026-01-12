@@ -122,6 +122,15 @@ def extract_code_from_markdown(text: str) -> str:
 # HTML CLEANING FOR LLM
 # ============================================================================
 
+# Pre-compiled regex patterns for performance (Bolt ⚡ Optimization)
+_SCRIPT_PATTERN = re.compile(r'<script[^>]*>.*?</script>', re.DOTALL | re.IGNORECASE)
+_STYLE_PATTERN = re.compile(r'<style[^>]*>.*?</style>', re.DOTALL | re.IGNORECASE)
+_COMMENT_PATTERN = re.compile(r'<!--.*?-->', re.DOTALL)
+_HIDDEN_DISPLAY_PATTERN = re.compile(r'<[^>]+display:\s*none[^>]*>.*?</[^>]+>', re.DOTALL | re.IGNORECASE)
+_HIDDEN_VISIBILITY_PATTERN = re.compile(r'<[^>]+visibility:\s*hidden[^>]*>.*?</[^>]+>', re.DOTALL | re.IGNORECASE)
+_SVG_PATTERN = re.compile(r'<svg[^>]*>.*?</svg>', re.DOTALL | re.IGNORECASE)
+_WHITESPACE_PATTERN = re.compile(r'\s+')
+
 def clean_html_for_llm(html: str, max_length: int = 30000) -> str:
     """
     Clean HTML for better LLM analysis.
@@ -137,23 +146,23 @@ def clean_html_for_llm(html: str, max_length: int = 30000) -> str:
         Cleaned HTML string
     """
     # Remove script tags and content
-    html = re.sub(r'<script[^>]*>.*?</script>', '', html, flags=re.DOTALL | re.IGNORECASE)
+    html = _SCRIPT_PATTERN.sub('', html)
     
     # Remove style tags and content
-    html = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.DOTALL | re.IGNORECASE)
+    html = _STYLE_PATTERN.sub('', html)
     
     # Remove HTML comments
-    html = re.sub(r'<!--.*?-->', '', html, flags=re.DOTALL)
+    html = _COMMENT_PATTERN.sub('', html)
     
     # Remove hidden elements (common patterns)
-    html = re.sub(r'<[^>]+display:\s*none[^>]*>.*?</[^>]+>', '', html, flags=re.DOTALL | re.IGNORECASE)
-    html = re.sub(r'<[^>]+visibility:\s*hidden[^>]*>.*?</[^>]+>', '', html, flags=re.DOTALL | re.IGNORECASE)
+    html = _HIDDEN_DISPLAY_PATTERN.sub('', html)
+    html = _HIDDEN_VISIBILITY_PATTERN.sub('', html)
     
     # Remove SVG content (usually icons, very verbose)
-    html = re.sub(r'<svg[^>]*>.*?</svg>', '[SVG]', html, flags=re.DOTALL | re.IGNORECASE)
+    html = _SVG_PATTERN.sub('[SVG]', html)
     
     # Collapse multiple whitespace
-    html = re.sub(r'\s+', ' ', html)
+    html = _WHITESPACE_PATTERN.sub(' ', html)
     
     # Truncate to max length
     if len(html) > max_length:
