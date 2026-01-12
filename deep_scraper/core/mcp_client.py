@@ -296,15 +296,39 @@ class PlaywrightMCPClient:
         """Get visible HTML of the page using JS evaluation."""
         return await self.call_tool("playwright_evaluate", {"script": "document.documentElement.outerHTML"})
 
-    async def get_full_page_content(self) -> Dict[str, Any]:
+    async def get_full_page_content(self, clean_html: bool = False) -> Dict[str, Any]:
         """
         Get both HTML and text content in a single call.
 
         Bolt ⚡ Optimization:
         - Reduces MCP network roundtrips by 50%
         - Fetches both DOM and Text in one JS execution
+        - Optionally cleans HTML in browser to reduce payload size (clean_html=True)
         """
-        script = "JSON.stringify({html: document.documentElement.outerHTML, text: document.body.innerText})"
+        if clean_html:
+            # Bolt ⚡: Browser-side cleaning reduces payload size by stripping scripts/styles/SVG
+            # This saves network bandwidth and reduces regex processing time in Python
+            script = r"""
+            (() => {
+                let html = document.documentElement.outerHTML;
+                // Remove scripts
+                html = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "");
+                // Remove styles
+                html = html.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "");
+                // Remove SVG
+                html = html.replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, "[SVG]");
+                // Remove comments
+                html = html.replace(/<!--[\s\S]*?-->/g, "");
+
+                return JSON.stringify({
+                    html: html,
+                    text: document.body.innerText
+                });
+            })()
+            """
+        else:
+            script = "JSON.stringify({html: document.documentElement.outerHTML, text: document.body.innerText})"
+
         return await self.call_tool("playwright_evaluate", {"script": script})
     
     async def screenshot(self, name: str = "screenshot", full_page: bool = False) -> Dict[str, Any]:

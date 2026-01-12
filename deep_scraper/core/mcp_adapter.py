@@ -161,7 +161,8 @@ class MCPBrowserAdapter:
         try:
             # Bolt ⚡ Optimization: Fetch both HTML and Text in a single MCP call
             # This reduces network overhead and ensures atomic snapshot
-            result = await self.mcp.get_full_page_content()
+            # Added clean_html=True to strip scripts/styles in browser (saves ~100KB per call)
+            result = await self.mcp.get_full_page_content(clean_html=True)
             data_str = result.get("result", "{}")
 
             # Parse the JSON string returned by the browser
