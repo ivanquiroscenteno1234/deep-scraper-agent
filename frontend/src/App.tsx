@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Terminal, Database, FileCode, Loader2, Search, Download, Table, FolderOpen, RefreshCw } from 'lucide-react';
 
 interface LogEntry {
@@ -14,7 +14,7 @@ function App() {
   const [endDate, setEndDate] = useState(new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }));
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [metrics, setMetrics] = useState({ scriptPath: '', extractedCount: 0 });
-  const [extractedData, setExtractedData] = useState<any[]>([]);
+  const [extractedData, setExtractedData] = useState<Record<string, unknown>[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
 
   // Script Library state
@@ -35,7 +35,7 @@ function App() {
     setLogs(prev => [...prev, { text, type }]);
   };
 
-  const loadScripts = async () => {
+  const loadScripts = useCallback(async () => {
     setIsLoadingScripts(true);
     try {
       const response = await fetch('http://localhost:8006/api/scripts');
@@ -51,12 +51,12 @@ function App() {
     } finally {
       setIsLoadingScripts(false);
     }
-  };
+  }, [selectedScriptPath]);
 
   // Auto-load scripts on mount
   useEffect(() => {
     loadScripts();
-  }, []);
+  }, [loadScripts]);
 
   const startScraping = async () => {
     setLogs([]);
@@ -365,7 +365,7 @@ function App() {
               <tbody>
                 {extractedData.map((row, i) => (
                   <tr key={i}>
-                    {Object.values(row).map((val: any, j) => (
+                    {Object.values(row).map((val: unknown, j) => (
                       <td key={j} title={String(val)}>{String(val)}</td>
                     ))}
                   </tr>
