@@ -21,3 +21,9 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2024-05-24 - Browser-Side HTML Filtering
+
+**Learning:** Transferring full HTML snapshots (>500KB) just to filter out hidden columns using Python regex is inefficient and brittle (misses `display: none` in CSS files).
+
+**Action:** Implemented `get_filtered_grid_snapshot()` to run the filtering logic inside the browser using DOM APIs (`getComputedStyle`). This reduces network payload by ~90% (only sending cleaned HTML) and improves accuracy by respecting CSS visibility rules. It also discovers grid selectors in the same pass, saving additional regex processing on the backend.

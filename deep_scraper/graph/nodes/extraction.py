@@ -17,7 +17,6 @@ from deep_scraper.graph.nodes.config import (
     llm,
     get_mcp_browser,
     extract_llm_text,
-    clean_html_for_llm,
     StructuredLogger,
     KNOWN_GRID_COLUMNS,
     COLUMN_HTML_LIMIT,
@@ -27,88 +26,9 @@ from deep_scraper.graph.nodes.config import (
 # By compiling regexes at the module level, we avoid re-compiling them on every function call.
 # This provides a significant performance boost when these functions are called frequently.
 
-# For filter_hidden_columns_from_html
-_TH_PATTERN = re.compile(r'<th([^>]*)>(.*?)</th>', re.IGNORECASE | re.DOTALL)
-_HIDDEN_PATTERNS = [
-    re.compile(r'class\s*=\s*["\'][^"\']*\b(hidden|hide)\b[^"\']*["\']', re.IGNORECASE),
-    re.compile(r'style\s*=\s*["\'][^"\']*display\s*:\s*none[^"\']*["\']', re.IGNORECASE),
-    re.compile(r'style\s*=\s*["\'][^"\']*visibility\s*:\s*hidden[^"\']*["\']', re.IGNORECASE),
-]
-_HIDDEN_CELL_PATTERN = re.compile(
-    r'<(th|td)\s+[^>]*class\s*=\s*["\'][^"\']*\b(hidden|hide)\b[^"\']*["\'][^>]*>.*?</\1>',
-    re.IGNORECASE | re.DOTALL
-)
-_HIDDEN_STYLE_PATTERN = re.compile(
-    r'<(th|td)\s+[^>]*style\s*=\s*["\'][^"\']*display\s*:\s*none[^"\']*["\'][^>]*>.*?</\1>',
-    re.IGNORECASE | re.DOTALL
-)
-
 # For node_capture_columns_mcp
 _JSON_PATTERN = re.compile(r'\{.*\}', re.DOTALL)
 _TABLE_PATTERN = re.compile(r'<table[^>]*>.*?</table>', re.DOTALL | re.IGNORECASE)
-
-# ID-based patterns for grid selectors (pre-compiled)
-_GRID_ID_PATTERNS = [
-    (re.compile(r'id=["\']RsltsGrid["\']', re.IGNORECASE), '#RsltsGrid'),
-    (re.compile(r'id=["\']SearchGrid["\']', re.IGNORECASE), '#SearchGrid'),
-    (re.compile(r'id=["\']gridMain["\']', re.IGNORECASE), '#gridMain'),
-    (re.compile(r'id=["\']resultsTable["\']', re.IGNORECASE), '#resultsTable'),
-    (re.compile(r'id=["\']grdSearchResults["\']', re.IGNORECASE), '#grdSearchResults'),
-]
-
-# BOLT ⚡: Optimized class-based selector discovery.
-# This single regex finds all common grid class names in one pass,
-# which is much faster than iterating and running 'in' checks on the full HTML content.
-_GRID_CLASS_MAP = {
-    't-grid': '.t-grid',
-    'datatable': 'table.dataTable',
-    'ig_electricbluecontrol': '.ig_ElectricBlueControl',
-    'search-results__results-wrap': '.search-results__results-wrap',
-}
-_GRID_CLASS_PATTERN = re.compile(
-    r'class\s*=\s*["\'][^"\']*\b(' + '|'.join(_GRID_CLASS_MAP.keys()) + r')\b[^"\']*["\']',
-    re.IGNORECASE
-)
-
-
-def filter_hidden_columns_from_html(html: str) -> Tuple[str, List[int]]:
-    """
-    Filter out hidden table columns from HTML and return visible column indices.
-    
-    Detects columns hidden via:
-    - CSS class="hidden", class="hide", or class containing "hidden"
-    - Inline style display:none or visibility:hidden
-    
-    Returns:
-        Tuple of (filtered_html, visible_column_indices)
-    """
-    # Find all table header cells and track which are visible
-    visible_indices = []
-
-    def is_hidden(attrs: str) -> bool:
-        for pattern in _HIDDEN_PATTERNS:
-            if pattern.search(attrs):
-                return True
-        return False
-    
-    # Process table headers to find visible column indices
-    all_ths = _TH_PATTERN.findall(html)
-    for i, (attrs, content) in enumerate(all_ths):
-        if not is_hidden(attrs):
-            visible_indices.append(i)
-    
-    # Also filter <td> elements with hidden class to clean up the sample data shown to LLM
-    # This helps LLM understand which columns actually contain visible data
-    filtered_html = html
-    
-    # Remove entire hidden <th> and <td> elements from sample HTML for cleaner LLM analysis
-    # Match th/td with hidden class and remove them
-    filtered_html = _HIDDEN_CELL_PATTERN.sub('', filtered_html)
-    
-    # Also remove cells with inline display:none
-    filtered_html = _HIDDEN_STYLE_PATTERN.sub('', filtered_html)
-    
-    return filtered_html, visible_indices
 
 
 async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
@@ -129,36 +49,31 @@ async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
     browser = await get_mcp_browser()
     
     await asyncio.sleep(2)
-    snapshot = await browser.get_snapshot()
-    raw_content = snapshot.get("html", str(snapshot))
     
-    # Filter hidden columns BEFORE sending to LLM
-    filtered_html, visible_indices = filter_hidden_columns_from_html(raw_content)
-    content = clean_html_for_llm(filtered_html, max_length=COLUMN_HTML_LIMIT)
+    # BOLT ⚡: Browser-side optimization
+    # Instead of fetching full HTML and filtering with Python regex,
+    # we run the filtering in the browser and get cleaned results in one go.
+    result = await browser.get_filtered_grid_snapshot(max_length=COLUMN_HTML_LIMIT)
     
-    log.info(f"Got snapshot ({len(raw_content)} chars, filtered to {len(filtered_html)} chars)")
+    content = result.get("clean_html", "")
+    visible_indices = result.get("visible_indices", [])
+    discovered_selectors = result.get("selectors", [])
+    current_page_summary = result.get("summary", "")
+    
+    # Check if we got valid data
+    if not content:
+        # Fallback to old method just in case (should not happen if MCP is working)
+        log.warning("Optimized grid snapshot returned empty, falling back to standard snapshot")
+        snapshot = await browser.get_snapshot()
+        raw_content = snapshot.get("html", str(snapshot))
+        content = raw_content[:COLUMN_HTML_LIMIT]
+        current_page_summary = snapshot.get("text", "")[:5000]
+    
+    log.info(f"Got filtered snapshot ({len(content)} chars)")
     if visible_indices:
         log.info(f"Detected {len(visible_indices)} visible column indices: {visible_indices[:20]}...")
     
-    # Discover grid selectors from HTML
-    discovered_selectors = []
-    
-    # ID-based patterns (using pre-compiled regex for performance)
-    for pattern, selector in _GRID_ID_PATTERNS:
-        if pattern.search(raw_content):
-            if selector not in discovered_selectors:
-                discovered_selectors.append(selector)
-                log.debug(f"Found grid ID: {selector}")
-    
-    # BOLT ⚡: Optimized class-based selector discovery using a single regex pass.
-    for match in _GRID_CLASS_PATTERN.finditer(raw_content):
-        class_name = match.group(1).lower()
-        selector = _GRID_CLASS_MAP.get(class_name)
-        if selector and selector not in discovered_selectors:
-            discovered_selectors.append(selector)
-            log.debug(f"Found grid class via optimized regex: {selector}")
-    
-    log.info(f"Discovered {len(discovered_selectors)} potential grid selectors")
+    log.info(f"Discovered {len(discovered_selectors)} potential grid selectors: {discovered_selectors}")
     
     # Use LLM to identify columns - with VISIBILITY emphasis
     prompt = f"""Analyze this HTML to identify the VISIBLE results grid columns.
@@ -208,8 +123,11 @@ Return JSON ONLY:
             llm_row_selector = parsed.get("row_selector", "tbody tr")
             first_data_column_index = parsed.get("first_data_column_index", 0)
             
-            if llm_grid_selector and llm_grid_selector not in discovered_selectors:
-                discovered_selectors.insert(0, llm_grid_selector)
+            # If LLM found a selector that matches one we discovered, favor the discovered one (id vs class)
+            # or if LLM found a new one, add it
+            if llm_grid_selector:
+                if llm_grid_selector not in discovered_selectors:
+                    discovered_selectors.insert(0, llm_grid_selector)
                 grid_selector = llm_grid_selector
             
             if llm_row_selector:
@@ -249,11 +167,11 @@ Return JSON ONLY:
     })
     
     # Extract grid HTML fragment (filtered version)
-    grid_html = filtered_html[:20000]
+    grid_html = content[:20000]
     if grid_selector:
         try:
             # Simple extraction of table content (using pre-compiled regex for performance)
-            table_match = _TABLE_PATTERN.search(filtered_html)
+            table_match = _TABLE_PATTERN.search(content)
             if table_match:
                 grid_html = table_match.group(0)[:30000]
         except Exception:
@@ -261,7 +179,7 @@ Return JSON ONLY:
             
     return {
         "status": "COLUMNS_CAPTURED",
-        "current_page_summary": raw_content[:5000],
+        "current_page_summary": current_page_summary,
         "recorded_steps": recorded_steps,
         "column_mapping": column_mapping,
         "grid_html": grid_html,
