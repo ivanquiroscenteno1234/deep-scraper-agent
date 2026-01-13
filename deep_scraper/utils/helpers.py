@@ -12,6 +12,7 @@ Contains:
 
 import re
 import datetime
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional, Type, TypeVar
 from pydantic import BaseModel, Field
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -130,6 +131,7 @@ _HIDDEN_DISPLAY_PATTERN = re.compile(r'<[^>]+display:\s*none[^>]*>.*?</[^>]+>', 
 _HIDDEN_VISIBILITY_PATTERN = re.compile(r'<[^>]+visibility:\s*hidden[^>]*>.*?</[^>]+>', re.DOTALL | re.IGNORECASE)
 _SVG_PATTERN = re.compile(r'<svg[^>]*>.*?</svg>', re.DOTALL | re.IGNORECASE)
 _WHITESPACE_PATTERN = re.compile(r'\s+')
+_ALPHANUMERIC_PATTERN = re.compile(r'[^a-zA-Z0-9]')
 
 def clean_html_for_llm(html: str, max_length: int = 30000) -> str:
     """
@@ -275,15 +277,16 @@ def get_site_name_from_url(url: str) -> str:
     """
     Extract a clean site name from a URL for use in filenames.
     
+    Bolt ⚡ Optimization:
+    - Moved imports to module level
+    - Uses pre-compiled regex for cleaning
+
     Args:
         url: Full URL
         
     Returns:
         Clean site name (e.g., 'brevardclerk' from 'https://brevardclerk.us/...')
     """
-    from urllib.parse import urlparse
-    import re
-    
     parsed = urlparse(url)
     hostname = parsed.hostname or "unknown"
     
@@ -301,6 +304,6 @@ def get_site_name_from_url(url: str) -> str:
         site_name = hostname
     
     # Clean to alphanumeric only
-    site_name = re.sub(r'[^a-zA-Z0-9]', '', site_name)
+    site_name = _ALPHANUMERIC_PATTERN.sub('', site_name)
     
     return site_name.lower() or "unknown"
