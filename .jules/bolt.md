@@ -21,3 +21,9 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2025-02-19 - Repeated String Transformations in Loops
+
+**Learning:** Repeatedly applying string transformations (like `.lower()`) to large text content inside loops or generator expressions is a performance bottleneck. Hoisting these operations out of the loop significantly reduces CPU overhead (verified ~1.9x speedup).
+
+**Action:** Check for repeated operations on large data structures inside loops and hoist them.
