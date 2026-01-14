@@ -17,6 +17,36 @@ from mcp import ClientSession
 from mcp.client.sse import sse_client
 
 
+# Bolt ⚡ Optimization: Browser-side HTML cleaning script
+# Removes scripts, styles, SVGs, comments, and hidden elements before serializing.
+# This reduces network payload and Python-side processing.
+_CLEAN_HTML_SCRIPT = """
+(function() {
+    var clone = document.documentElement.cloneNode(true);
+    var toRemove = clone.querySelectorAll('script, style, noscript, svg, link[rel="stylesheet"]');
+    for (var i = 0; i < toRemove.length; i++) toRemove[i].remove();
+
+    var treeWalker = document.createTreeWalker(clone, 128); // NodeFilter.SHOW_COMMENT
+    var comments = [];
+    while(treeWalker.nextNode()) comments.push(treeWalker.currentNode);
+    for (var i = 0; i < comments.length; i++) comments[i].remove();
+
+    var all = clone.querySelectorAll('*');
+    for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.style) {
+            if (el.style.display === 'none' || el.style.visibility === 'hidden') {
+                el.remove();
+            }
+        }
+    }
+
+    var html = clone.outerHTML.replace(/\\s+/g, ' ');
+    return JSON.stringify({html: html, text: document.body.innerText});
+})();
+"""
+
+
 class PlaywrightMCPClient:
     """
     Client for ExecuteAutomation Playwright MCP server.
@@ -296,15 +326,20 @@ class PlaywrightMCPClient:
         """Get visible HTML of the page using JS evaluation."""
         return await self.call_tool("playwright_evaluate", {"script": "document.documentElement.outerHTML"})
 
-    async def get_full_page_content(self) -> Dict[str, Any]:
+    async def get_full_page_content(self, clean: bool = False) -> Dict[str, Any]:
         """
         Get both HTML and text content in a single call.
 
         Bolt ⚡ Optimization:
         - Reduces MCP network roundtrips by 50%
         - Fetches both DOM and Text in one JS execution
+        - Optional 'clean' parameter performs browser-side HTML cleaning
         """
-        script = "JSON.stringify({html: document.documentElement.outerHTML, text: document.body.innerText})"
+        if clean:
+            script = _CLEAN_HTML_SCRIPT
+        else:
+            script = "JSON.stringify({html: document.documentElement.outerHTML, text: document.body.innerText})"
+
         return await self.call_tool("playwright_evaluate", {"script": script})
     
     async def screenshot(self, name: str = "screenshot", full_page: bool = False) -> Dict[str, Any]:

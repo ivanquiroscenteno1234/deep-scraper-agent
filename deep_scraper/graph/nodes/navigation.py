@@ -100,7 +100,11 @@ async def node_analyze_mcp(state: AgentState) -> Dict[str, Any]:
     browser = await get_mcp_browser()
     
     # Get page snapshot and clean it for LLM
-    snapshot = await browser.get_snapshot()
+    # Bolt ⚡: Use browser-side cleaning to reduce network payload and Python CPU usage
+    snapshot = await browser.get_snapshot(clean=True)
+
+    # The HTML is already cleaned, but we still apply length limits and whitespace collapsing
+    # clean_html_for_llm is still useful for truncation
     raw_html = snapshot.get("html", str(snapshot))
     page_content = clean_html_for_llm(raw_html, max_length=100000)
     
