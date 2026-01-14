@@ -14,6 +14,7 @@ function App() {
   const [endDate, setEndDate] = useState(new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }));
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [metrics, setMetrics] = useState({ scriptPath: '', extractedCount: 0 });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [extractedData, setExtractedData] = useState<any[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
 
@@ -56,6 +57,7 @@ function App() {
   // Auto-load scripts on mount
   useEffect(() => {
     loadScripts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const startScraping = async () => {
@@ -365,6 +367,7 @@ function App() {
               <tbody>
                 {extractedData.map((row, i) => (
                   <tr key={i}>
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                     {Object.values(row).map((val: any, j) => (
                       <td key={j} title={String(val)}>{String(val)}</td>
                     ))}
