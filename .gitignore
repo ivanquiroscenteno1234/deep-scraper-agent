@@ -28,3 +28,4 @@ output/extracted_data/
 
 # Keep generated scripts in git!
 # output/generated_scripts/ is NOT ignored
+.pytest_cache/
