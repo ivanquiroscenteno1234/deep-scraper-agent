@@ -11,6 +11,13 @@ from datetime import datetime
 from dotenv import load_dotenv
 import csv
 import io
+import subprocess
+import re
+
+# BOLT ⚡: Pre-compiled regex patterns for performance
+# Moved from execute_script to avoid recompilation on every request
+ROW_PATTERN = re.compile(r'(?:Extracted|Found|Saved|Saving)\s+(\d+)\s+(?:rows|records|items)', re.IGNORECASE)
+CSV_PATH_PATTERN = re.compile(r'(?:saved to|CSV saved:|to|Saved)\s+([^\s]+\.csv)', re.IGNORECASE)
 
 # Load environment variables from .env
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
@@ -185,9 +192,6 @@ async def execute_script(request: ExecuteRequest):
     print(f"DEBUG: Executing script {request.script_path}")
     print(f"DEBUG: Query='{request.search_query}', Start='{request.start_date}', End='{request.end_date}'")
     
-    import subprocess
-    import re
-    
     try:
         # BOLT ⚡: Replaced blocking subprocess.run with async create_subprocess_exec
         # This prevents the long-running scraper from blocking the FastAPI event loop
@@ -214,14 +218,14 @@ async def execute_script(request: ExecuteRequest):
         
         # 2. Extract Row Count
         row_count = 0
-        row_match = re.search(r'(?:Extracted|Found|Saved|Saving)\s+(\d+)\s+(?:rows|records|items)', stdout_text, re.IGNORECASE)
+        row_match = ROW_PATTERN.search(stdout_text)
         if row_match:
             row_count = int(row_match.group(1))
             
         # 3. CSV File Resolution
         csv_file = None
         # Try finding path in stdout - support multiple formats
-        csv_path_match = re.search(r'(?:saved to|CSV saved:|to|Saved)\s+([^\s]+\.csv)', stdout_text, re.IGNORECASE)
+        csv_path_match = CSV_PATH_PATTERN.search(stdout_text)
         if csv_path_match:
             csv_file = csv_path_match.group(1).strip()
             
