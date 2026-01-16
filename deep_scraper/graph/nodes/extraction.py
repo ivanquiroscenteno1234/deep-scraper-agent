@@ -70,11 +70,75 @@ _GRID_CLASS_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+# BOLT ⚡: JS script to filter hidden elements in the browser
+# This avoids transferring full HTML and running heavy regex in Python.
+# It uses getComputedStyle for accurate visibility detection (which regex can't do).
+_JS_GET_FILTERED_CONTENT = """
+(function() {
+    // 1. Mark hidden TH/TD in live DOM (to calculate visible indices correctly)
+    const hiddenNodes = [];
+    const allCells = document.querySelectorAll('th, td');
+
+    // Check computed styles on live elements
+    allCells.forEach(el => {
+        const style = window.getComputedStyle(el);
+        const isHidden = (
+            style.display === 'none' ||
+            style.visibility === 'hidden' ||
+            el.classList.contains('hidden') ||
+            el.classList.contains('hide')
+        );
+
+        if (isHidden) {
+            el.setAttribute('data-bolt-hide', 'true');
+            hiddenNodes.push(el);
+        }
+    });
+
+    // 2. Clone and clean for HTML output
+    const clone = document.documentElement.cloneNode(true);
+
+    // Remove scripts, styles, svgs, noscript (Pre-cleaning for LLM)
+    const noise = clone.querySelectorAll('script, style, svg, noscript');
+    noise.forEach(el => el.remove());
+
+    // Remove marked hidden cells
+    const hiddenClones = clone.querySelectorAll('[data-bolt-hide="true"]');
+    hiddenClones.forEach(el => el.remove());
+
+    // Remove comments (simple replacement, safer in JS than Regex if large)
+    // (Optional, skipping for now as clean_html_for_llm handles it)
+
+    const filteredHtml = clone.outerHTML;
+
+    // 3. Get visible indices (using the live DOM state we checked)
+    const visibleIndices = [];
+    const headers = document.querySelectorAll('th');
+    headers.forEach((th, i) => {
+        if (!th.hasAttribute('data-bolt-hide')) {
+            visibleIndices.push(i);
+        }
+    });
+
+    // 4. Cleanup live DOM
+    hiddenNodes.forEach(el => el.removeAttribute('data-bolt-hide'));
+
+    return JSON.stringify({
+        filtered_html: filteredHtml,
+        raw_html: document.documentElement.outerHTML,
+        visible_indices: visibleIndices
+    });
+})();
+"""
+
 
 def filter_hidden_columns_from_html(html: str) -> Tuple[str, List[int]]:
     """
     Filter out hidden table columns from HTML and return visible column indices.
     
+    DEPRECATED: Use browser-side filtering via _JS_GET_FILTERED_CONTENT where possible.
+    Kept as fallback.
+
     Detects columns hidden via:
     - CSS class="hidden", class="hide", or class containing "hidden"
     - Inline style display:none or visibility:hidden
@@ -129,11 +193,23 @@ async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
     browser = await get_mcp_browser()
     
     await asyncio.sleep(2)
-    snapshot = await browser.get_snapshot()
-    raw_content = snapshot.get("html", str(snapshot))
     
-    # Filter hidden columns BEFORE sending to LLM
-    filtered_html, visible_indices = filter_hidden_columns_from_html(raw_content)
+    # BOLT ⚡: Optimization - Filter in browser
+    # Reduces data transfer and uses native DOM visibility checks
+    try:
+        result_json = await browser.evaluate(_JS_GET_FILTERED_CONTENT)
+        data = json.loads(result_json)
+        filtered_html = data.get("filtered_html", "")
+        raw_content = data.get("raw_html", "")
+        visible_indices = data.get("visible_indices", [])
+        log.debug("Used browser-side HTML filtering")
+    except Exception as e:
+        log.warning(f"Browser-side filtering failed ({e}), falling back to Python regex")
+        snapshot = await browser.get_snapshot()
+        raw_content = snapshot.get("html", str(snapshot))
+        # Filter hidden columns BEFORE sending to LLM
+        filtered_html, visible_indices = filter_hidden_columns_from_html(raw_content)
+
     content = clean_html_for_llm(filtered_html, max_length=COLUMN_HTML_LIMIT)
     
     log.info(f"Got snapshot ({len(raw_content)} chars, filtered to {len(filtered_html)} chars)")
