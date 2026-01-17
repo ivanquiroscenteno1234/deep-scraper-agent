@@ -70,6 +70,51 @@ _GRID_CLASS_PATTERN = re.compile(
     re.IGNORECASE
 )
 
+# Bolt ⚡: JS Script for browser-side HTML filtering
+# This offloads heavy regex processing and hidden column detection to the browser,
+# utilizing getComputedStyle for accurate visibility checking and reducing network payload.
+_JS_GET_FILTERED_CONTENT = """
+(function() {
+    // 1. Identify visible indices
+    const ths = Array.from(document.querySelectorAll('th'));
+    const visibleIndices = [];
+    ths.forEach((th, index) => {
+        const style = window.getComputedStyle(th);
+        const isHidden = style.display === 'none' || style.visibility === 'hidden' ||
+                         th.offsetWidth === 0 || th.offsetHeight === 0 ||
+                         th.classList.contains('hidden') || th.classList.contains('hide');
+        if (!isHidden) visibleIndices.push(index);
+    });
+
+    // 2. Create filtered HTML
+    const clone = document.documentElement.cloneNode(true);
+
+    // Remove noise tags
+    const noiseSelectors = 'script, style, svg, noscript, iframe, link, meta';
+    clone.querySelectorAll(noiseSelectors).forEach(el => el.remove());
+
+    // Remove comments
+    const walker = document.createTreeWalker(clone, NodeFilter.SHOW_COMMENT);
+    const comments = [];
+    while(walker.nextNode()) comments.push(walker.currentNode);
+    comments.forEach(c => c.remove());
+
+    // Remove hidden elements (class/inline style)
+    const hidden = clone.querySelectorAll('.hidden, .hide, [style*="display: none"], [style*="display:none"], [style*="visibility: hidden"]');
+    hidden.forEach(el => el.remove());
+
+    // Get HTML and collapse whitespace
+    let html = clone.outerHTML;
+    html = html.replace(/\\s+/g, ' ');
+
+    return JSON.stringify({
+        html: html,
+        visible_indices: visibleIndices,
+        summary: document.documentElement.outerHTML.substring(0, 5000)
+    });
+})()
+"""
+
 
 def filter_hidden_columns_from_html(html: str) -> Tuple[str, List[int]]:
     """
@@ -129,29 +174,44 @@ async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
     browser = await get_mcp_browser()
     
     await asyncio.sleep(2)
-    snapshot = await browser.get_snapshot()
-    raw_content = snapshot.get("html", str(snapshot))
     
-    # Filter hidden columns BEFORE sending to LLM
-    filtered_html, visible_indices = filter_hidden_columns_from_html(raw_content)
+    # Bolt ⚡: Run filtering in browser to reduce network payload and Python CPU usage
+    result_json = await browser.evaluate(_JS_GET_FILTERED_CONTENT)
+    try:
+        data = json.loads(result_json) if result_json else {}
+        filtered_html = data.get("html", "")
+        visible_indices = data.get("visible_indices", [])
+        raw_summary = data.get("summary", "")
+    except Exception as e:
+        log.error(f"Failed to parse JS result: {e}")
+        # Fallback to standard snapshot if JS fails
+        snapshot = await browser.get_snapshot()
+        raw_content = snapshot.get("html", str(snapshot))
+
+        # Use legacy Python filtering
+        filtered_html, visible_indices = filter_hidden_columns_from_html(raw_content)
+        raw_summary = raw_content[:5000]
+
+    # Still run clean_html_for_llm for final truncation and consistency
     content = clean_html_for_llm(filtered_html, max_length=COLUMN_HTML_LIMIT)
     
-    log.info(f"Got snapshot ({len(raw_content)} chars, filtered to {len(filtered_html)} chars)")
+    log.info(f"Got snapshot (filtered to {len(filtered_html)} chars)")
     if visible_indices:
         log.info(f"Detected {len(visible_indices)} visible column indices: {visible_indices[:20]}...")
     
     # Discover grid selectors from HTML
+    # Use filtered_html instead of raw_content - we don't want selectors from hidden/script elements
     discovered_selectors = []
     
     # ID-based patterns (using pre-compiled regex for performance)
     for pattern, selector in _GRID_ID_PATTERNS:
-        if pattern.search(raw_content):
+        if pattern.search(filtered_html):
             if selector not in discovered_selectors:
                 discovered_selectors.append(selector)
                 log.debug(f"Found grid ID: {selector}")
     
     # BOLT ⚡: Optimized class-based selector discovery using a single regex pass.
-    for match in _GRID_CLASS_PATTERN.finditer(raw_content):
+    for match in _GRID_CLASS_PATTERN.finditer(filtered_html):
         class_name = match.group(1).lower()
         selector = _GRID_CLASS_MAP.get(class_name)
         if selector and selector not in discovered_selectors:
@@ -261,7 +321,7 @@ Return JSON ONLY:
             
     return {
         "status": "COLUMNS_CAPTURED",
-        "current_page_summary": raw_content[:5000],
+        "current_page_summary": raw_summary,
         "recorded_steps": recorded_steps,
         "column_mapping": column_mapping,
         "grid_html": grid_html,
