@@ -22,6 +22,7 @@ from deep_scraper.graph.nodes.config import (
     KNOWN_GRID_COLUMNS,
     COLUMN_HTML_LIMIT,
 )
+from deep_scraper.utils.constants import RESULTS_GRID_SELECTORS
 
 # --- Pre-compiled Regex Patterns for Performance ---
 # By compiling regexes at the module level, we avoid re-compiling them on every function call.
@@ -128,10 +129,19 @@ async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
     
     browser = await get_mcp_browser()
     
-    await asyncio.sleep(2)
-    snapshot = await browser.get_snapshot()
-    raw_content = snapshot.get("html", str(snapshot))
+    # BOLT ⚡: Replaced sleep(2) with smart wait and use atomic snapshot
+    # Wait for grid to appear (using list of known selectors) to avoid race conditions
+    await browser.wait_for_grid(RESULTS_GRID_SELECTORS, timeout=4000)
     
+    # Bolt ⚡: Use get_full_page_content() to get both HTML and Text in one go
+    # This avoids getting just 'innerText' from get_snapshot() which breaks HTML parsing
+    snapshot_data = await browser.get_snapshot() # This now uses get_full_page_content internally in mcp_adapter
+
+    raw_content = snapshot_data.get("html", "")
+    if not raw_content:
+        # Fallback to text if HTML is missing (should not happen with get_full_page_content)
+        raw_content = snapshot_data.get("text", str(snapshot_data))
+
     # Filter hidden columns BEFORE sending to LLM
     filtered_html, visible_indices = filter_hidden_columns_from_html(raw_content)
     content = clean_html_for_llm(filtered_html, max_length=COLUMN_HTML_LIMIT)
