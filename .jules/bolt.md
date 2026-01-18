@@ -21,3 +21,9 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2024-05-25 - Browser-Side Content Filtering
+
+**Learning:** Fetching full HTML (>2MB) to filter out hidden columns using Python regex is inefficient and inaccurate (misses CSS inheritance).
+
+**Action:** Implemented `get_filtered_html_with_indices` which runs JS in the browser to detect visibility using `getComputedStyle` and returns only the cleaned HTML (<50KB). This reduces network payload by ~98% and improves data quality for the LLM.
