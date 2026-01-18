@@ -61,14 +61,14 @@ if google_api_key:
 else:
     raise ValueError("GOOGLE_API_KEY environment variable is required")
 
-print(f"🤖 LLM Init: Model={gemini_model}, Key={google_api_key[:8]}...{google_api_key[-4:] if google_api_key else ''}", flush=True)
+print(f"LLM Init: Model={gemini_model}, Key={google_api_key[:4]}...{google_api_key[-4:] if google_api_key else ''}", flush=True)
 
 # LLM with low thinking for page analysis
 llm = ChatGoogleGenerativeAI(
     model=gemini_model, 
     temperature=0, 
     google_api_key=google_api_key,
-    thinking_level="low"
+    thinking_level="high"
 )
 
 # LLM with high thinking for script generation

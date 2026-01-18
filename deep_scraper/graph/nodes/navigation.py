@@ -33,20 +33,24 @@ async def node_navigate_mcp(state: AgentState) -> Dict[str, Any]:
     log = StructuredLogger("Navigate")
     log.info("Starting navigation")
     
-    # On first navigation (attempt 0), reset browser to ensure fresh state
+    # FRESH BROWSER: On first navigation, close any existing browser to force fresh context.
+    # Playwright's newContext() creates isolated, incognito-like sessions by default,
+    # so closing the browser ensures the next launch starts completely fresh.
+    # See skill: browser-state-reset for details.
     attempt_count = state.get("attempt_count", 0)
     if attempt_count == 0:
-        log.info("First run - resetting browser for fresh state")
+        log.info("First run - closing any existing browser for fresh context")
         try:
             from deep_scraper.core.mcp_client import get_mcp_client
             temp_client = get_mcp_client()
             if await temp_client.is_server_running():
                 await temp_client.connect()
                 await temp_client.close()
-                log.success("Existing browser closed")
+                log.success("Browser closed - next launch will have fresh context (no cookies/cache)")
         except Exception as e:
             log.debug(f"No existing browser to close: {e}")
         
+        # Reset adapter state to ensure clean connection
         await reset_mcp_browser()
     
     browser = await get_mcp_browser()
@@ -154,12 +158,15 @@ The goal is to find and record the grid/column selectors once search results are
 
 ### 1. CAPTCHA DETECTED
 If you see a CAPTCHA challenge (reCAPTCHA, image verification, "I'm not a robot"):
-- Set requires_login=True (we use this flag to escalate)
-- This cannot be automated
+- If the reCaptcha is a modal, click the accept button
+- If the reCaptcha is a popup, click the accept button
+- If the reCaptcha is not avoiding you to continue (it's not blocking the search form), then proceed with the search. 
+- If the reCaptcha is avoiding you to continue (it's blocking the search form), then set requires_login=True (we use this flag to escalate)
 
 ### 2. LOGIN REQUIRED  
 If the page requires authentication/login to proceed:
-- Set requires_login=True
+- If the login option is not blocking the search form, then proceed with the search. 
+- if the login option is blocking the search form, then set requires_login=True
 
 ### 3. RESULTS GRID
 If you see a DATA TABLE with search results containing columns like:
@@ -173,12 +180,25 @@ ONLY classify as search page if you find ACTUAL <input> elements:
 - These must be VISIBLE form fields, not just links or icons
 - Set is_search_page=True and provide search_input_ref, search_button_ref
 
-### 5. DISCLAIMER / NAVIGATION PORTAL
+### 5. NAVIGATION PORTAL (HOME PAGE WITH SEARCH ICONS)
 If the page shows:
-- A modal/overlay with Accept/Yes/OK button
-- A home portal with ICONS or LINKS to different search types (Name Search, Document Search, etc.)
+- A home page with ICONS or LINKS to different search types (Name Search, Document Search, etc.)
+- NO modal overlay is VISIBLY blocking interaction with these icons
 - NO actual <input> text fields visible
-- Set is_disclaimer=True and provide accept_button_ref (the button/link to click next)
+- Set is_disclaimer=True and provide accept_button_ref = CSS selector for "Name Search" icon/link
+- IMPORTANT: Click the search type icon FIRST - this may trigger a disclaimer modal
+
+### 6. DISCLAIMER MODAL (BLOCKING OVERLAY)
+If the page shows:
+- A modal/overlay with Accept/Yes/OK button that is BLOCKING the page
+- The modal has visible text about terms/conditions/disclaimer
+- The Accept button is CLEARLY VISIBLE inside a modal container
+- Set is_disclaimer=True and provide accept_button_ref = CSS selector for the Accept button
+
+## PRIORITY ORDER FOR accept_button_ref:
+1. If "Name Search" link/icon is visible (a[title*='Name'], a[aria-label*='Name']) → click that FIRST
+2. If Accept/OK button is in a VISIBLE modal → click that
+3. If both are visible, prefer clicking Name Search icon (it may auto-dismiss or trigger disclaimer)
 
 {memory_context}
 ## PAGE HTML:
@@ -187,11 +207,12 @@ If the page shows:
 ## IMPORTANT DISTINCTIONS:
 - ICONS/LINKS to "Name Search" are NOT search pages - they are NAVIGATION elements
 - A search page has <input> fields where you TYPE a query
-- If you see a modal blocking the page, that's a DISCLAIMER even if there are icons behind it
+- On Landmark Web sites (flaglerclerk, etc.): clicking "Name Search" icon opens a modal with disclaimer + search form
+- If no modal is blocking the page, click a search type icon (not Accept button)
 
 ## WHAT TO RETURN:
 - For search form: is_search_page=True, search_input_ref, search_button_ref, start_date_input_ref, end_date_input_ref
-- For disclaimer/portal: is_disclaimer=True, accept_button_ref (selector for Accept button OR next navigation link)
+- For disclaimer/portal: is_disclaimer=True, accept_button_ref (selector for search icon OR Accept button)
 - For results: is_results_grid=True, grid_selector
 - For login/captcha: requires_login=True
 

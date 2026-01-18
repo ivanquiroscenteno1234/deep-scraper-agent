@@ -100,6 +100,21 @@ class PlaywrightMCPClient:
     async def disconnect(self):
         """Disconnect from the MCP server."""
         print("🔌 Disconnecting from MCP server...")
+        
+        # Properly close the session context if it exists
+        if self._session_context:
+            try:
+                await self._session_context.__aexit__(None, None, None)
+            except Exception as e:
+                print(f"⚠️ Error during MCP session exit: {e}")
+        
+        # Properly close the transport context if it exists
+        if self._context_manager:
+            try:
+                await self._context_manager.__aexit__(None, None, None)
+            except Exception as e:
+                print(f"⚠️ Error during MCP transport exit: {e}")
+        
         self._session = None
         self._session_context = None
         self._context_manager = None
@@ -301,6 +316,28 @@ class PlaywrightMCPClient:
     async def close(self) -> Dict[str, Any]:
         """Close the browser."""
         return await self.call_tool("playwright_close", {})
+    
+    async def clear_browser_storage(self) -> Dict[str, Any]:
+        """
+        Clear all cookies and localStorage to ensure fresh session.
+        
+        Call this after navigating to a page to remove any cached auth state.
+        See skill: browser-state-reset for details.
+        """
+        script = """
+        (() => {
+            // Clear cookies
+            document.cookie.split(";").forEach(c => {
+                document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+            });
+            // Clear storage
+            try { localStorage.clear(); } catch(e) {}
+            try { sessionStorage.clear(); } catch(e) {}
+            return 'Browser storage cleared';
+        })()
+        """
+        print("🧹 Clearing browser cookies and storage...")
+        return await self.call_tool("playwright_evaluate", {"script": script})
 
 
 # Singleton instance

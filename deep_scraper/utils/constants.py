@@ -26,7 +26,8 @@ RESULTS_GRID_SELECTORS: List[str] = [
     ".search-results__results-wrap",
     ".a11y-table",
     ".a11y-table table",
-    # Miami-Dade County / Custom Angular sites
+    # Miami-Dade County / Custom sites
+    "table[aria-label='Search Results Table']",  # Table View (after toggling from Card View)
     ".custom-table",
     ".table-responsive table",
     "table.align-middle",
@@ -34,6 +35,19 @@ RESULTS_GRID_SELECTORS: List[str] = [
     ".ig_ElectricBlueControl",
     ".igg_ElectricBlueControl",
     "[id*='_g_G1']",
+    # ASP.NET ListView patterns (Harris County, etc.)
+    "#itemPlaceholderContainer",
+    "#itemPlaceHolderContainer",
+    "[id*='itemPlaceholder']",
+    # ASP.NET GridView patterns
+    "[id*='gvSearch']",
+    "[id*='GridView']",
+    "[id*='grdSearch']",
+    # Bootstrap table patterns
+    "table.table-condensed",
+    "table.table-striped",
+    "table.table-hover",
+    ".table-responsive > table",
     # Generic fallbacks (for detection only)
     "#SearchGrid",
     "#SearchGridDiv table",

@@ -132,9 +132,10 @@ async def node_click_link_mcp(state: AgentState) -> Dict[str, Any]:
             try:
                 # IMPORTANT: First check if the accept button is actually VISIBLE
                 # Some sites (like Flagler) have hidden disclaimers that only appear after navigation
-                is_visible = await browser.evaluate(
+                is_visible_raw = await browser.evaluate(
                     f"(() => {{ const el = document.querySelector('{accept_button}'); return el && el.offsetParent !== null && getComputedStyle(el).display !== 'none' && getComputedStyle(el).visibility !== 'hidden'; }})()"
                 )
+                is_visible = str(is_visible_raw).lower() == "true"
                 
                 if is_visible:
                     if await browser.click_element(accept_button, "Accept button"):
@@ -273,9 +274,10 @@ async def node_click_link_mcp(state: AgentState) -> Dict[str, Any]:
                 for accept_sel in accept_selectors:
                     try:
                         # Check if this element is actually visible/clickable now
-                        is_visible = await browser.evaluate(
+                        is_visible_raw = await browser.evaluate(
                             f"(() => {{ const el = document.querySelector('{accept_sel}'); return el && el.offsetParent !== null; }})()"
                         )
+                        is_visible = str(is_visible_raw).lower() == "true"
                         if is_visible:
                             log.info(f"Found visible accept button: {accept_sel}")
                             if await browser.click_element(accept_sel, "Accept button (now visible)"):
@@ -496,17 +498,85 @@ async def node_perform_search_mcp(state: AgentState) -> Dict[str, Any]:
         start_val = state.get("start_date", "01/01/1980")
         end_val = state.get("end_date", datetime.datetime.now().strftime("%m/%d/%Y"))
         
+        # Check if date fields are jQuery UI datepicker widgets
+        # MCP fill() times out on these due to datepicker event interception
+        is_datepicker = False
         try:
-            await browser.fill_form(start_date_ref, start_val, "Start Date")
-            await browser.fill_form(end_date_ref, end_val, "End Date")
-            log.success(f"Filled date range: {start_val} - {end_val}")
-            
+            is_datepicker_raw = await browser.evaluate(f"""
+                (() => {{
+                    const el = document.querySelector('{start_date_ref}');
+                    return el && (el.classList.contains('hasDatepicker') || el.classList.contains('datepicker'));
+                }})()
+            """)
+            is_datepicker = str(is_datepicker_raw).lower() == "true"
+        except Exception:
+            pass
+        
+        date_filled = False
+        if is_datepicker:
+            log.info("Detected datepicker fields - using JavaScript fallback")
+            try:
+                # Use JavaScript to fill datepicker fields directly
+                # This bypasses the datepicker widget that blocks standard fill
+                await browser.evaluate(f"""
+                    (() => {{
+                        const startEl = document.querySelector('{start_date_ref}');
+                        const endEl = document.querySelector('{end_date_ref}');
+                        if (startEl && endEl) {{
+                            // Clear existing values first
+                            startEl.value = '';
+                            endEl.value = '';
+                            // Set new values
+                            startEl.value = '{start_val}';
+                            endEl.value = '{end_val}';
+                            // Trigger change events so form validation picks up the values
+                            startEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            endEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            startEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                            endEl.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        }}
+                    }})()
+                """)
+                log.success(f"Filled date range via JS: {start_val} - {end_val}")
+                date_filled = True
+            except Exception as e:
+                log.warning(f"JS datepicker fill failed: {e}")
+        
+        # Standard MCP fill for normal input fields (or as fallback)
+        if not date_filled:
+            try:
+                await browser.fill_form(start_date_ref, start_val, "Start Date")
+                await browser.fill_form(end_date_ref, end_val, "End Date")
+                log.success(f"Filled date range: {start_val} - {end_val}")
+                date_filled = True
+            except Exception as e:
+                log.warning(f"Standard fill failed: {e}, trying JS fallback...")
+                # Final JS fallback on any fill failure
+                try:
+                    await browser.evaluate(f"""
+                        (() => {{
+                            const startEl = document.querySelector('{start_date_ref}');
+                            const endEl = document.querySelector('{end_date_ref}');
+                            if (startEl && endEl) {{
+                                startEl.value = '{start_val}';
+                                endEl.value = '{end_val}';
+                                startEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                endEl.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                            }}
+                        }})()
+                    """)
+                    log.success(f"Filled date range via JS fallback: {start_val} - {end_val}")
+                    date_filled = True
+                except Exception as e2:
+                    log.error(f"All date fill attempts failed: {e2}")
+        
+        if date_filled:
+            # NOTE: Do NOT use use_js flag - page.fill() works better with datepickers
+            # than JavaScript el.value = '...' which doesn't trigger proper form validation
             date_steps.extend([
-                {"action": "fill", "selector": start_date_ref, "value": "{{START_DATE}}", "description": "Fill start date"},
+                {"action": "fill", "selector": start_date_ref, "value": "{{START_DATE}}", "description": "Fill start date", "wait_for_input": input_ref},
                 {"action": "fill", "selector": end_date_ref, "value": "{{END_DATE}}", "description": "Fill end date"}
             ])
-        except Exception as e:
-            log.warning(f"Failed to fill date range: {e}")
             
         await asyncio.sleep(1)
 

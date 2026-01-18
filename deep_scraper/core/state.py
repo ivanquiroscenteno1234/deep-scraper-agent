@@ -53,3 +53,6 @@ class AgentState(TypedDict):
     disclaimer_click_attempts: int  # How many times we've clicked accept buttons
     clicked_selectors: List[str]    # Selectors we've already tried clicking
     grid_html: Optional[str]
+    
+    # React SPA detection
+    is_react_spa: bool  # True if page requires React-specific input handling

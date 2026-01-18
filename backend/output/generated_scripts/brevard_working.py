@@ -70,9 +70,10 @@ def main():
             # STEP 6: Handle Name Selection Popup or Results
             print("[STEP 6] Waiting for results or Name Selection popup...")
             
-            # Wait for either the grid OR the popup submit button to appear
+            # ROBUST WAIT AFTER SEARCH:
+            print("[WAIT] Waiting for results OR name selection popup...")
             try:
-                page.wait_for_selector("#frmSchTarget input[type='submit'], .t-grid, #RsltsGrid", timeout=15000)
+                page.wait_for_selector("#RsltsGrid, #NamesWin, #frmSchTarget, .t-window", timeout=5000)
             except:
                 pass
 

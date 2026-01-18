@@ -20,7 +20,8 @@ YOU MUST use these exact selectors - do not invent your own:
 
 ## GRID INFORMATION
 - Primary grid selector: {grid_selector}
-- Row selector: {row_selector}
+- Row selector (relative to grid): {row_selector}
+- Full row selector: {grid_selector} {row_selector}
 - First DATA column index: {first_data_column_index} (skip columns before this index - they are row numbers or icons)
 
 ## COLUMNS TO EXTRACT (VISIBLE COLUMNS ONLY)
@@ -48,15 +49,31 @@ These are the VISIBLE data columns. Hidden columns and icon columns have been fi
      # Wait for EITHER the grid OR the popup container
      print("[STEP 6] Waiting for results OR popup...")
      try:
-         page.wait_for_selector("{grid_selector}, #NamesWin, #frmSchTarget, .t-window", timeout=20000)
+         page.wait_for_selector("{grid_selector}, #NamesWin, #frmSchTarget, .t-window", timeout=5000)
      except:
          pass
      ```
    - **PRIORITIZE RECORDED SELECTORS**: If `recorded_steps` contains a click on a popup button (e.g., `#NamesWin`, `#frmSchTarget`), you **MUST** use that exact selector.
+   - **CRITICAL TIMEOUT**: When checking if a popup button exists, ALWAYS use `is_visible(timeout=3000)`. Popups are dynamic and take time to appear. Never use `is_visible()` without a timeout.
 
-4. **Date Parameterization**:
+4. **Date Parameterization (CRITICAL)**:
    - If `recorded_steps` contains `{{START_DATE}}` or `{{END_DATE}}` in the `value` field:
-     - You MUST use the `start_date` and `end_date` variables (from `sys.argv`) in those `page.fill()` calls.
+     - You MUST use the `start_date` and `end_date` variables (from `sys.argv`) in those fill calls.
+   - **IMPORTANT**: If the step has `"use_js": true`, the field is a jQuery datepicker widget.
+     - Do NOT use `page.fill()` - it will timeout or not trigger form validation!
+     - Instead, use JavaScript to set the value and trigger events:
+     ```python
+     page.evaluate(f\"\"\"
+         (() => {{
+             const el = document.querySelector('{{selector}}');
+             if (el) {{
+                 el.value = '{{date_value}}';
+                 el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                 el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+             }}
+         }})()
+     \"\"\")
+     ```
 
 5. **Fresh Browser Context**: Always create a fresh context with no storage state.
 
@@ -66,7 +83,56 @@ These are the VISIBLE data columns. Hidden columns and icon columns have been fi
 
 8. **Output CSV**: Save results to CSV in the `output/data/` folder relative to the script's directory parent (i.e., `../output/data/` from script location or use absolute path based on `__file__`).
 
+9. **PAGE LOAD WAITS AFTER CLICKS (CRITICAL)**:
+   - After EVERY `.click()` action, you MUST wait for the page to load:
+     ```python
+     element.click()
+     page.wait_for_load_state("domcontentloaded", timeout=5000)
+     ```
+   - For actions that trigger navigation or AJAX loads, use:
+     ```python
+     button.click()
+     page.wait_for_load_state("networkidle", timeout=5000)
+     ```
+   - This prevents race conditions where the script runs faster than the page loads.
+   - Apply this pattern to: disclaimer accepts, form submissions, popup closes, navigation clicks.
+   - **NEVER** use `page.click(\"selector\")` directly. **ALWAYS** use `page.locator(\"selector\").click()` followed by a wait.
+
+10. **ACCLAIMWEB SITES (brevardclerk, etc.) - ROW SELECTOR**:
+    - For AcclaimWeb/Telerik grid sites (URL contains `AcclaimWeb`), the data rows are inside `.t-grid-content`
+    - The row selector MUST be: `{grid_selector} .t-grid-content tbody tr`
+    - Example: `#RsltsGrid .t-grid-content tbody tr`
+    - Do NOT use just `tbody tr` - this will select wrong rows!
+
+11. **LANDMARK WEB NAVIGATION (flaglerclerk, etc.)**:
+    - These sites show a HOME PAGE with search icons (Name Search, Document Search, etc.)
+    - The disclaimer/accept button is HIDDEN on the home page
+    - The flow is:
+      1. Navigate to home page
+      2. **Click the "Name Search" icon** (a[title='Name Search'] or similar)
+      3. This opens a MODAL with the disclaimer
+      4. Click Accept button to dismiss disclaimer
+      5. Now the search form is visible in the modal
+    - If the home page has search icons but no visible Accept button, click the Name Search icon FIRST
+    - Use try/except blocks to handle the case where disclaimer is already accepted via cookies
+
+12. **WAIT FOR FORM BEFORE FILLING (CRITICAL FOR DATES)**:
+    - **BEFORE** filling ANY form field (search term, start date, end date), you MUST wait for the search input field to be visible:
+      ```python
+      # CRITICAL: Wait for the search form to be visible in the modal
+      page.wait_for_selector("#name-Name", state="visible", timeout=5000)
+      ```
+    - For Landmark Web sites, the search modal takes time to fully render after accepting disclaimer
+    - If you fill date fields via JavaScript BEFORE the modal is visible, the values will NOT be applied!
+    - The correct order is:
+      1. Accept disclaimer
+      2. **Wait for search input to be visible** (e.g., `#name-Name`)
+      3. Fill search term
+      4. Fill start/end dates
+      5. Click submit
+
 ## SCRIPT STRUCTURE
+
 
 ```python
 import sys
@@ -99,29 +165,81 @@ def main():
         try:
             # STEP 1: Navigate
             print("[STEP 1] Navigating to URL...")
-            page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=45000)
+            page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=5000)
+            page.wait_for_load_state("networkidle", timeout=5000)
             
-            # FOLLOW ALL RECORDED STEPS IN ORDER...
-            # Use the EXACT selectors from recorded_steps.
-            # Replace {{SEARCH_TERM}}, {{START_DATE}}, {{END_DATE}} with main() variables.
+            # STEP 2: Accept Disclaimer (if present)
+            # CRITICAL: Always wait after clicks!
+            print("[STEP 2] Accepting disclaimer...")
+            try:
+                page.locator("#btnButton").click()  # Use recorded selector
+                page.wait_for_load_state("domcontentloaded", timeout=5000)
+            except:
+                pass  # Disclaimer may not appear
+            
+            # STEP 3-5: Fill form fields using recorded selectors
+            # page.fill("#SearchOnName", search_term)
+            # page.fill("#RecordDateFrom", start_date)
+            # page.fill("#RecordDateTo", end_date)
+            
+            # STEP 6: Submit search
+            # CRITICAL: Always wait after search click!
+            print("[STEP 6] Submitting search...")
+            page.locator("#btnSearch").click()  # Use recorded selector
+            page.wait_for_load_state("domcontentloaded", timeout=5000)
             
             # ROBUST WAIT AFTER SEARCH:
+            # Many sites show a "Name Selection" popup after search.
+            # Use short timeout and handle gracefully - either popup OR grid may appear.
             print("[STEP 6] Waiting for results OR popup...")
             try:
-                page.wait_for_selector("{grid_selector}, #NamesWin, #frmSchTarget, .t-window", timeout=20000)
+                page.wait_for_selector("{grid_selector}, #NamesWin, #frmSchTarget, .t-window", timeout=5000)
             except:
-                pass
+                pass  # Continue anyway - popup or grid may still appear
 
-            # HANDLE POPUPS IF RECORDED (Use recorded selectors)
-            # ...
+            # HANDLE POPUPS IF RECORDED (Use try/except for robustness)
+            # Try multiple popup button selectors in order of specificity
+            popup_selectors = [
+                "#frmSchTarget input[type='submit']",  # Recorded popup button
+                "input[value='Done']",
+                "input[name='btnDone']"
+            ]
+            for popup_sel in popup_selectors:
+                try:
+                    popup_btn = page.locator(popup_sel)
+                    # CRITICAL: Always use timeout=3000 for dynamic popups
+                    if popup_btn.is_visible(timeout=3000):
+                        print(f"[STEP 6b] Handling popup with {{popup_sel}}...")
+                        popup_btn.first.click()
+                        page.wait_for_load_state("networkidle", timeout=5000)
+                        break  # Exit loop once popup is handled
+                except:
+                    continue  # Try next selector
 
-            # WAIT FOR GRID (RECORDED GRID SELECTOR)
+            # WAIT FOR GRID (TRY MULTIPLE SELECTORS FOR ROBUSTNESS)
             print("[STEP 7] Ensuring grid is visible...")
-            page.wait_for_selector("{grid_selector}", timeout=15000)
+            grid_selectors = ["{grid_selector}", "#RsltsGrid", "#SearchGrid", ".t-grid", "#itemPlaceholderContainer", "table.table-condensed"]
+            grid_found = False
+            for selector in grid_selectors:
+                try:
+                    grid = page.locator(selector)
+                    grid.wait_for(state="visible", timeout=5000)
+                    print(f"[STEP 7] Found grid: {{selector}}")
+                    grid_found = True
+                    break
+                except:
+                    continue
+            
+            if not grid_found:
+                # Last resort: wait a bit more and check for any visible table with data
+                page.wait_for_timeout(3000)
+                if page.locator("{grid_selector}").is_visible():
+                    grid_found = True
             
             # EXTRACT DATA - START FROM FIRST_DATA_COLUMN
             print("[STEP 8] Extracting rows...")
-            rows = page.locator("{row_selector}").all()
+            # CRITICAL: Combine grid_selector with row_selector for correct row location
+            rows = page.locator("{grid_selector} {row_selector}").all()
             data = []
             for row in rows:
                 cells = row.locator("td").all()
@@ -142,6 +260,7 @@ def main():
             os.makedirs(output_dir, exist_ok=True)
             # Save CSV to output_dir...
             
+            # CRITICAL: Always print SUCCESS (even with 0 rows)
             print(f"SUCCESS: Extracted {{len(data)}} rows")
             
         except Exception as e:
@@ -197,6 +316,12 @@ def build_script_prompt(
         }
         if step.get("value"):
             step_info["value"] = step.get("value")
+        # Include use_js flag for datepicker fields
+        if step.get("use_js"):
+            step_info["use_js"] = True
+        # Include wait_for_input hint for date fields
+        if step.get("wait_for_input"):
+            step_info["wait_for_input"] = step.get("wait_for_input")
         # Include first_data_column_index if this is a capture_grid step
         if step.get("action") == "capture_grid" and step.get("first_data_column_index") is not None:
             step_info["first_data_column_index"] = step.get("first_data_column_index")

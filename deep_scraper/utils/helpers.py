@@ -145,9 +145,23 @@ def clean_html_for_llm(html: str, max_length: int = 30000) -> str:
     # Remove HTML comments
     html = re.sub(r'<!--.*?-->', '', html, flags=re.DOTALL)
     
-    # Remove hidden elements (common patterns)
+    # Remove hidden elements with inline styles
     html = re.sub(r'<[^>]+display:\s*none[^>]*>.*?</[^>]+>', '', html, flags=re.DOTALL | re.IGNORECASE)
     html = re.sub(r'<[^>]+visibility:\s*hidden[^>]*>.*?</[^>]+>', '', html, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Remove elements with common hidden CSS classes
+    # This catches modals/dialogs that are hidden via CSS classes not inline styles
+    # Pattern: class="..." containing "hide", "hidden", "d-none", "display-none", "modal hide"
+    hidden_class_patterns = [
+        r'<div[^>]+class="[^"]*\bhide\b[^"]*"[^>]*>.*?</div>',        # class="...hide..."
+        r'<div[^>]+class="[^"]*\bhidden\b[^"]*"[^>]*>.*?</div>',      # class="...hidden..."
+        r'<div[^>]+class="[^"]*\bd-none\b[^"]*"[^>]*>.*?</div>',      # Bootstrap d-none
+        r'<div[^>]+class="[^"]*\bdisplay-none\b[^"]*"[^>]*>.*?</div>', # class="display-none"
+        r'<section[^>]+class="[^"]*\bhide\b[^"]*"[^>]*>.*?</section>', # section with hide class
+    ]
+    
+    for pattern in hidden_class_patterns:
+        html = re.sub(pattern, '', html, flags=re.DOTALL | re.IGNORECASE)
     
     # Remove SVG content (usually icons, very verbose)
     html = re.sub(r'<svg[^>]*>.*?</svg>', '[SVG]', html, flags=re.DOTALL | re.IGNORECASE)

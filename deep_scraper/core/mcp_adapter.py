@@ -314,6 +314,24 @@ class MCPBrowserAdapter:
         await reset_mcp_client()
         self.mcp = None
         print("🔄 Browser adapter fully reset")
+    
+    async def clear_storage(self) -> bool:
+        """
+        Clear browser cookies and local storage for fresh session.
+        
+        Call this after navigating to a page if you need to force-clear
+        any cached authentication or session state.
+        See skill: browser-state-reset for details.
+        """
+        if not self.mcp:
+            return False
+        try:
+            await self.mcp.clear_browser_storage()
+            print("✅ Browser storage cleared")
+            return True
+        except Exception as e:
+            print(f"⚠️ Failed to clear storage: {e}")
+            return False
 
 
 # Global adapter instance
