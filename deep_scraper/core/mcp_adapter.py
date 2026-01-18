@@ -149,11 +149,14 @@ class MCPBrowserAdapter:
             print(f"⚠️ Failed to get content: {e}")
             return ""
     
-    async def get_snapshot(self) -> Dict[str, Any]:
+    async def get_snapshot(self, clean: bool = False) -> Dict[str, Any]:
         """
         Get page HTML and text for LLM analysis.
         
         Uses playwright_evaluate via client methods to get robust DOM content.
+
+        Args:
+            clean: If True, performs browser-side cleaning of HTML (removes scripts/styles)
         """
         if not self.mcp:
             return {}
@@ -161,7 +164,7 @@ class MCPBrowserAdapter:
         try:
             # Bolt ⚡ Optimization: Fetch both HTML and Text in a single MCP call
             # This reduces network overhead and ensures atomic snapshot
-            result = await self.mcp.get_full_page_content()
+            result = await self.mcp.get_full_page_content(clean=clean)
             data_str = result.get("result", "{}")
 
             # Parse the JSON string returned by the browser

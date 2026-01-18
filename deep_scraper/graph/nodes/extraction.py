@@ -129,7 +129,8 @@ async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
     browser = await get_mcp_browser()
     
     await asyncio.sleep(2)
-    snapshot = await browser.get_snapshot()
+    # Bolt ⚡ Optimization: Use browser-side cleaning to reduce data transfer
+    snapshot = await browser.get_snapshot(clean=True)
     raw_content = snapshot.get("html", str(snapshot))
     
     # Filter hidden columns BEFORE sending to LLM
