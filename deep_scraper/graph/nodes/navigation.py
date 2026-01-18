@@ -100,7 +100,8 @@ async def node_analyze_mcp(state: AgentState) -> Dict[str, Any]:
     browser = await get_mcp_browser()
     
     # Get page snapshot and clean it for LLM
-    snapshot = await browser.get_snapshot()
+    # Bolt ⚡ Optimization: Use browser-side cleaning to reduce data transfer
+    snapshot = await browser.get_snapshot(clean=True)
     raw_html = snapshot.get("html", str(snapshot))
     page_content = clean_html_for_llm(raw_html, max_length=100000)
     
