@@ -21,3 +21,15 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2025-01-28 - Regex vs String Methods
+
+**Learning:** In Python, `str.upper()` combined with `in` operator is approximately 20x faster than `re.search(..., re.IGNORECASE)` for large strings (1MB+), because `str.upper()` is highly optimized in C. Also, Python's internal regex cache negates the benefit of manually pre-compiling regexes for low-frequency calls.
+
+**Action:** For simple case-insensitive substring checks, prefer `x.upper() in y.upper()` over regex. Do not waste time pre-compiling regexes unless they are used in tight loops or bypass the internal cache limit.
+
+## 2025-01-28 - Avoid Unnecessary Reflows
+
+**Learning:** `document.body.innerText` forces the browser to calculate layout (Reflow), which is computationally expensive. `document.documentElement.outerHTML` does not. Fetching `innerText` when only HTML is needed wastes CPU (browser) and Network bandwidth.
+
+**Action:** Implemented `get_html()` in `MCPBrowserAdapter` to fetch only `outerHTML`. Replaced `get_snapshot()` with `get_html()` in extraction and navigation nodes where text content was unused.

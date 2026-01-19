@@ -149,6 +149,27 @@ class MCPBrowserAdapter:
             print(f"⚠️ Failed to get content: {e}")
             return ""
     
+    async def get_html(self) -> str:
+        """
+        Get page HTML only.
+
+        Bolt ⚡ Optimization:
+        - Fetches only outerHTML, avoiding innerText calculation (browser reflow)
+        - Reduces MCP payload size by excluding text content
+        - Faster than get_snapshot() when text is not needed
+        """
+        if not self.mcp:
+            return ""
+
+        try:
+            result = await self.mcp.get_html()
+            if isinstance(result, dict):
+                return str(result.get("result", ""))
+            return str(result)
+        except Exception as e:
+            print(f"⚠️ Failed to get HTML: {e}")
+            return ""
+
     async def get_snapshot(self) -> Dict[str, Any]:
         """
         Get page HTML and text for LLM analysis.
