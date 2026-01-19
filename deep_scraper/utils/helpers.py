@@ -255,8 +255,10 @@ async def analyze_page_with_llm(
     full_html = snapshot.get("html", str(snapshot))
     print(f"📸 Got snapshot ({len(full_html)} chars)")
     
-    # Truncate HTML for LLM
-    html = full_html[:html_limit]
+    # Clean HTML before truncating (Bolt ⚡ Optimization)
+    # This removes scripts/styles/comments first, ensuring the truncated content
+    # is actually useful for the LLM, rather than being 20k chars of <script> tags.
+    html = clean_html_for_llm(full_html, max_length=html_limit)
     
     # Build full prompt with HTML
     full_user_prompt = f"{user_prompt}\n\nHTML:\n{html}"
