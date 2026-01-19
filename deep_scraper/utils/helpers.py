@@ -251,8 +251,8 @@ async def analyze_page_with_llm(
         Parsed model instance from LLM response
     """
     # Get page snapshot
-    snapshot = await browser.get_snapshot()
-    full_html = snapshot.get("html", str(snapshot))
+    # Bolt ⚡ Optimization: Fetch HTML only
+    full_html = await browser.get_html()
     print(f"📸 Got snapshot ({len(full_html)} chars)")
     
     # Truncate HTML for LLM
