@@ -193,7 +193,10 @@ npm run dev
 
 ---
 
-## License
+## 🔮 Future Implementations
 
-MIT License
+Ideas and integrations to explore in future versions:
 
+- **[Antigravity Kit](https://github.com/vudovn/antigravity-kit)** - A AI kit that could enhance the AI Experience with modern agents and skills.
+
+---

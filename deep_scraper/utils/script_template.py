@@ -11,6 +11,7 @@ Generate a Python Playwright script for extracting data from a county clerk webs
 ## TARGET
 - Site: {site_name}
 - URL: {target_url}
+- Site Type: {site_type}
 
 ## RECORDED STEPS (USE THESE EXACT SELECTORS)
 These are the ACTUAL selectors that worked during the recording session.
@@ -56,7 +57,7 @@ These are the VISIBLE data columns. Hidden columns and icon columns have been fi
    - **PRIORITIZE RECORDED SELECTORS**: If `recorded_steps` contains a click on a popup button (e.g., `#NamesWin`, `#frmSchTarget`), you **MUST** use that exact selector.
    - **CRITICAL TIMEOUT**: When checking if a popup button exists, ALWAYS use `is_visible(timeout=3000)`. Popups are dynamic and take time to appear. Never use `is_visible()` without a timeout.
 
-4. **Date Parameterization (CRITICAL)**:
+4. **Field Fallbacks (use_js: true or date parameterization)**:
    - If `recorded_steps` contains `{{START_DATE}}` or `{{END_DATE}}` in the `value` field:
      - You MUST use the `start_date` and `end_date` variables (from `sys.argv`) in those fill calls.
    - **IMPORTANT**: If the step has `"use_js": true`, the field is a jQuery datepicker widget.
@@ -130,6 +131,44 @@ These are the VISIBLE data columns. Hidden columns and icon columns have been fi
       3. Fill search term
       4. Fill start/end dates
       5. Click submit
+
+13. **PLAYWRIGHT API - VALID METHODS ONLY (CRITICAL)**:
+    - **DO NOT** use non-existent methods. The following DO NOT EXIST in Playwright:
+      - `filter(has_attribute=...)` - DOES NOT EXIST
+      - `filter(has_text=..., has_attribute=...)` - INVALID COMBINATION
+    - **VALID filter() arguments**: `has_text`, `has_not_text`, `has`, `has_not`
+    - **For attribute filtering**, use CSS selectors directly:
+      ```python
+      # WRONG: page.locator("input").filter(has_attribute={"type": "submit"})
+      # RIGHT: page.locator("input[type='submit']")
+      ```
+    - **Keep locators simple**: Use direct CSS selectors instead of chained filter() calls
+    - **VALID patterns**:
+      ```python
+      page.locator("#myButton").click()
+      page.locator("input[type='submit']").first.click()
+      page.locator(".btn").filter(has_text="Search").click()
+      ```
+
+14. **INFRAGISTICS / AUMENTUM SITES (CRITICAL)**:
+    - If the URL or HTML contains `ig_ElectricBlue`, `Infragistics`, or `Aumentum`:
+    - **DO NOT USE `.fill()`** for search inputs or date fields! These controls ignore JavaScript-based value assignment.
+    - **YOU MUST USE KEYBOARD TYPING**:
+      ```python
+      # Correct pattern for Infragistics/Aumentum fields:
+      field = page.locator("#exact-selector")
+      field.click()
+      page.keyboard.press("Control+A")
+      page.keyboard.press("Backspace")
+      field.type(value, delay=50) # Use type() with delay
+      page.keyboard.press("Tab")
+      ```
+    - Apply this to: Search term input, Start Date, End Date.
+
+15. **ENFORCE GROUND TRUTH (STRICT)**:
+    - The `recorded_steps` contain the ONLY selectors that are guaranteed to work.
+    - If `recorded_steps` says a selector is `#cph1_lnkAccept`, do NOT "guess" and use `#cphNoMargin_btnAccept`.
+    - Always use the selector exactly as it appears in the `recorded_steps`.
 
 ## SCRIPT STRUCTURE
 
@@ -285,7 +324,8 @@ def build_script_prompt(
     row_selector: str,
     columns: list,
     grid_html: str = "",
-    first_data_column_index: int = 0
+    first_data_column_index: int = 0,
+    site_type: str = "UNKNOWN"
 ) -> str:
     """
     Build the prompt for script generation.
@@ -334,7 +374,8 @@ def build_script_prompt(
         grid_selector=grid_selector,
         row_selector=row_selector,
         columns_json=json.dumps(columns, indent=2),
-        first_data_column_index=first_data_column_index
+        first_data_column_index=first_data_column_index,
+        site_type=site_type
     )
     
     # Add grid HTML context if provided

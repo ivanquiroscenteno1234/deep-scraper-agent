@@ -466,10 +466,36 @@ async def node_perform_search_mcp(state: AgentState) -> Dict[str, Any]:
 
     log.info(f"Input={input_ref}, Submit={submit_ref}")
     
-    # Fill search input
+    # Check if this is an Infragistics/Aumentum site (Travis County, etc.)
+    # These controls require actual keyboard events - JS fill doesn't trigger server validation
+    snapshot = await browser.get_snapshot()
+    page_html = snapshot.get("html", "")
+    is_infragistics = 'ig_ElectricBlue' in page_html or 'Infragistics' in page_html or 'Aumentum' in page_html
+    
+    # Fill search input - use keyboard typing for Infragistics sites
     try:
-        await browser.fill_form(input_ref, search_query, "Search input")
-        log.success("Filled search input")
+        if is_infragistics:
+            log.info("Detected Infragistics site - using keyboard typing for search input")
+            # First click to focus the field
+            await browser.click_element(input_ref, "Focus search input")
+            await asyncio.sleep(0.3)
+            # Select all and delete existing content
+            await browser.press_key("Control+a")
+            await asyncio.sleep(0.1)
+            await browser.press_key("Delete")
+            await asyncio.sleep(0.1)
+            # Type the search query using native keyboard events ONLY
+            # This is required for Infragistics controls that don't recognize JS .value changes
+            for char in search_query:
+                await browser.press_key(char)
+                await asyncio.sleep(0.02)  # Small delay between keystrokes
+            # Trigger blur to ensure the control registers the value
+            await browser.press_key("Tab")
+            await asyncio.sleep(0.3)
+            log.success(f"Typed search input via keyboard: {search_query}")
+        else:
+            await browser.fill_form(input_ref, search_query, "Search input")
+            log.success("Filled search input")
     except Exception as e:
         log.error(f"Failed to fill search input: {e}")
         return {
@@ -544,13 +570,64 @@ async def node_perform_search_mcp(state: AgentState) -> Dict[str, Any]:
         
         # Standard MCP fill for normal input fields (or as fallback)
         if not date_filled:
-            try:
-                await browser.fill_form(start_date_ref, start_val, "Start Date")
-                await browser.fill_form(end_date_ref, end_val, "End Date")
-                log.success(f"Filled date range: {start_val} - {end_val}")
-                date_filled = True
-            except Exception as e:
-                log.warning(f"Standard fill failed: {e}, trying JS fallback...")
+            # For Infragistics sites, use keyboard typing for dates too
+            if is_infragistics:
+                log.info("Using keyboard typing for Infragistics date fields")
+                try:
+                    # Fill start date via keyboard
+                    await browser.click_element(start_date_ref, "Focus start date")
+                    await asyncio.sleep(0.2)
+                    await browser.press_key("Control+a")
+                    await asyncio.sleep(0.1)
+                    for char in start_val:
+                        await browser.press_key(char)
+                        await asyncio.sleep(0.02)
+                    await browser.press_key("Tab")
+                    await asyncio.sleep(0.3)
+                    
+                    # Fill end date via keyboard
+                    await browser.click_element(end_date_ref, "Focus end date")
+                    await asyncio.sleep(0.2)
+                    await browser.press_key("Control+a")
+                    await asyncio.sleep(0.1)
+                    for char in end_val:
+                        await browser.press_key(char)
+                        await asyncio.sleep(0.02)
+                    await browser.press_key("Tab")
+                    await asyncio.sleep(0.3)
+                    
+                    log.success(f"Filled date range via keyboard: {start_val} - {end_val}")
+                    date_filled = True
+                    date_steps.append({
+                        "action": "fill",
+                        "selector": start_date_ref,
+                        "value": "{{START_DATE}}",
+                        "use_js": True,
+                        "description": "Fill start date (Infragistics)"
+                    })
+                    date_steps.append({
+                        "action": "fill",
+                        "selector": end_date_ref,
+                        "value": "{{END_DATE}}",
+                        "use_js": True,
+                        "description": "Fill end date (Infragistics)"
+                    })
+                except Exception as e:
+                    log.warning(f"Keyboard date fill failed: {e}")
+            
+            # Standard MCP fill for non-Infragistics sites
+            if not date_filled:
+                try:
+                    await browser.fill_form(start_date_ref, start_val, "Start Date")
+                    await browser.fill_form(end_date_ref, end_val, "End Date")
+                    log.success(f"Filled date range: {start_val} - {end_val}")
+                    date_filled = True
+                    date_steps.extend([
+                        {"action": "fill", "selector": start_date_ref, "value": "{{START_DATE}}", "description": "Fill start date"},
+                        {"action": "fill", "selector": end_date_ref, "value": "{{END_DATE}}", "description": "Fill end date"}
+                    ])
+                except Exception as e:
+                    log.warning(f"Standard fill failed: {e}, trying JS fallback...")
                 # Final JS fallback on any fill failure
                 try:
                     await browser.evaluate(f"""
@@ -704,6 +781,7 @@ Return the analysis as JSON."""
             "action": "fill",
             "selector": input_ref,
             "value": "{{SEARCH_TERM}}",
+            "use_js": is_infragistics,  # Use JS/keyboard logic if Infragistics
             "description": "Fill search input"
         },
         {

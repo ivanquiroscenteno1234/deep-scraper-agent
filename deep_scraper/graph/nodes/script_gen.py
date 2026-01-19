@@ -44,7 +44,6 @@ async def node_generate_script_mcp(state: AgentState) -> Dict[str, Any]:
     discovered_selectors = state.get("discovered_grid_selectors", [])
     
     site_name = get_site_name_from_url(target_url)
-    log.info(f"Site: {site_name}, Steps: {len(recorded_steps)}, Columns: {len(columns_list)}")
     
     # Get grid selector from recorded steps
     grid_selector = ""
@@ -72,6 +71,17 @@ async def node_generate_script_mcp(state: AgentState) -> Dict[str, Any]:
         await browser.end_codegen_session()
     except Exception:
         pass
+
+    # Detect site type for specialized rules
+    site_type = "UNKNOWN"
+    if 'ig_ElectricBlue' in grid_html or 'Infragistics' in grid_html or 'Aumentum' in grid_html:
+        site_type = "INFRAGISTICS"
+    elif "AcclaimWeb" in target_url:
+        site_type = "ACCLAIMWEB"
+    elif "flaglerclerk" in target_url or "Landmark" in grid_html:
+        site_type = "LANDMARK_WEB"
+    
+    log.info(f"Site: {site_name}, Type: {site_type}, Steps: {len(recorded_steps)}")
     
     # Build prompt using helper
     prompt = build_script_prompt(
@@ -82,7 +92,8 @@ async def node_generate_script_mcp(state: AgentState) -> Dict[str, Any]:
         row_selector=row_selector,
         columns=columns_list,
         grid_html=clean_html_for_llm(grid_html, max_length=30000),
-        first_data_column_index=first_data_column_index
+        first_data_column_index=first_data_column_index,
+        site_type=site_type  # Pass site type to builder
     )
     
     log.info(f"Sending to LLM for script generation (first_data_column={first_data_column_index})")
@@ -124,6 +135,7 @@ async def node_generate_script_mcp(state: AgentState) -> Dict[str, Any]:
         "generated_script_code": script_code,
         "recorded_steps": recorded_steps,
         "column_mapping": column_mapping,
+        "site_type": site_type,
         "script_test_attempts": 0,
         "extracted_data": [],
         "logs": (state.get("logs") or []) + log.get_logs()

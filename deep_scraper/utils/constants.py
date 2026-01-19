@@ -98,3 +98,20 @@ SCRIPT_TEST_TIMEOUT_SECONDS = 120
 DEFAULT_HTML_LIMIT = 50000
 POPUP_HTML_LIMIT = 60000  # Extra for popup detection since popups can be at end of DOM
 COLUMN_HTML_LIMIT = 50000
+
+# ============================================================================
+# AUMENTUM/INFRAGISTICS STACKED COLUMN HANDLING
+# ============================================================================
+# Travis County and other Aumentum sites use Infragistics grids with stacked
+# column labels (two labels in one physical column cell). This mapping splits
+# these combined labels into their component columns.
+
+AUMENTUM_STACKED_COLUMNS: Dict[str, List[str]] = {
+    # Combined label -> List of separate column names
+    "Name / Associated Name": ["Name", "Associated Name"],
+    "Name/Associated Name": ["Name", "Associated Name"],
+    "Instrument # / Book-Page": ["Instrument #", "Book", "Page"],
+    "Instrument #/Book-Page": ["Instrument #", "Book", "Page"],
+    "Book-Page": ["Book", "Page"],
+}
+

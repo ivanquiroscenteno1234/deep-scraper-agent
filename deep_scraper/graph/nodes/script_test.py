@@ -161,6 +161,7 @@ async def node_fix_script(state: AgentState) -> Dict[str, Any]:
     error_msg = state.get("script_error", "")
     recorded_steps = state.get("recorded_steps", [])
     attempts = state.get("script_test_attempts", 0)
+    site_type = state.get("site_type", "UNKNOWN")
     
     log.info(f"Fixing script (attempt {attempts})")
     log.debug(f"Error: {error_msg[:200]}...")
@@ -179,6 +180,7 @@ async def node_fix_script(state: AgentState) -> Dict[str, Any]:
 ## GROUND TRUTH (RECORDED STEPS)
 These steps are known working selectors from the recording session.
 YOU MUST prioritize these over any hallucinations or generic selectors.
+- Site Type: {site_type}
 {json.dumps(recorded_steps, indent=2)}
 
 ## CURRENT SCRIPT

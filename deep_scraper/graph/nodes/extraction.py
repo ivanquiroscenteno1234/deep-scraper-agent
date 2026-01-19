@@ -22,6 +22,7 @@ from deep_scraper.graph.nodes.config import (
     KNOWN_GRID_COLUMNS,
     COLUMN_HTML_LIMIT,
 )
+from deep_scraper.utils.constants import AUMENTUM_STACKED_COLUMNS
 
 
 def filter_hidden_columns_from_html(html: str) -> Tuple[str, List[int]]:
@@ -154,6 +155,14 @@ async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
             
     except Exception as e:
         log.warning(f"JavaScript table visibility check failed: {e}")
+    
+    # Detect Aumentum/Infragistics grids (Travis County, etc.) - these have stacked column labels
+    is_aumentum = 'ig_ElectricBlue' in raw_content or any(
+        isinstance(t, dict) and 'ig_ElectricBlue' in (t.get('className') or '')
+        for t in visible_tables
+    )
+    if is_aumentum:
+        log.info("Detected Aumentum/Infragistics grid - will handle stacked column labels")
     
     # Use visible table HTML if available, otherwise fall back to filtered full HTML
     if isinstance(visible_tables, list) and len(visible_tables) > 0:
@@ -298,6 +307,12 @@ IMPORTANT: Prefer using one of the DISCOVERED selectors above. They were confirm
 3. columns: Array of VISIBLE column names from the table header
 4. first_data_column_index: 0-based index of first DATA column (skip row#, icons)
 
+## STACKED COLUMN LABELS (CRITICAL FOR INFRAGISTICS/AUMENTUM):
+Some grids have TWO labels stacked vertically in ONE column cell. Examples:
+- "Name / Associated Name" in one cell -> split into SEPARATE columns: "Name", "Associated Name"
+- "Instrument # / Book-Page" in one cell -> split into: "Instrument #", "Book", "Page"
+IMPORTANT: If you see stacked/combined labels, split them into their component column names!
+
 Return JSON ONLY:
 {{"grid_selector": "...", "row_selector": "...", "columns": ["Column1", "Column2", ...], "first_data_column_index": 0}}
 """
@@ -333,6 +348,23 @@ Return JSON ONLY:
             
             columns = parsed.get("columns", [])
             if columns:
+                # POST-PROCESSING: Expand stacked column labels for Aumentum/Infragistics grids
+                # If LLM returned combined labels like "Name / Associated Name", split them
+                expanded_columns = []
+                for col in columns:
+                    # Check if this is a known stacked column pattern
+                    if col in AUMENTUM_STACKED_COLUMNS:
+                        expanded = AUMENTUM_STACKED_COLUMNS[col]
+                        log.info(f"Expanding stacked column '{col}' -> {expanded}")
+                        expanded_columns.extend(expanded)
+                    else:
+                        expanded_columns.append(col)
+                
+                # Use expanded columns if we actually expanded any
+                if len(expanded_columns) > len(columns):
+                    log.success(f"Expanded {len(columns)} columns to {len(expanded_columns)} columns")
+                    columns = expanded_columns
+                
                 for i, col in enumerate(columns):
                     column_mapping[f"col_{i}"] = col
                 log.success(f"Captured {len(columns)} VISIBLE columns (data starts at index {first_data_column_index})")
