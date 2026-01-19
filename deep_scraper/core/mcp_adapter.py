@@ -183,6 +183,81 @@ class MCPBrowserAdapter:
             print(f"⚠️ Failed to get snapshot: {e}")
             return {}
     
+    async def get_filtered_html_with_indices(self) -> Dict[str, Any]:
+        """
+        Get cleaned HTML and visible column indices using browser-side execution.
+
+        Bolt ⚡ Optimization:
+        - Replaces heavy Python regex processing with fast browser DOM manipulation
+        - Uses getComputedStyle for accurate visibility detection
+        - Reduces payload size by stripping scripts/styles/hidden elements before transmission
+        """
+        if not self.mcp:
+            return {"html": "", "visible_indices": []}
+
+        # JavaScript to execute in the browser
+        script = """
+        (() => {
+            // Helper to check visibility on LIVE elements (uses computed style)
+            function isLiveVisible(el) {
+                if (!el) return false;
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none' &&
+                       style.visibility !== 'hidden' &&
+                       style.opacity !== '0' &&
+                       !el.classList.contains('hidden') &&
+                       !el.classList.contains('hide');
+            }
+
+            // 1. Identify visible column indices (based on ALL 'th' elements in live DOM)
+            const allThs = Array.from(document.querySelectorAll('th'));
+            const visibleIndices = allThs.map((th, index) => isLiveVisible(th) ? index : -1).filter(i => i !== -1);
+
+            // 2. Create a clean clone
+            const clone = document.documentElement.cloneNode(true);
+
+            // 3. Remove technical tags
+            const toRemove = clone.querySelectorAll('script, style, svg, noscript, iframe, link, meta');
+            toRemove.forEach(el => el.remove());
+
+            // 4. Remove hidden elements (checking inline styles and classes on CLONE)
+            const allEls = clone.querySelectorAll('*');
+            allEls.forEach(el => {
+                // Check class
+                if (el.classList.contains('hidden') || el.classList.contains('hide')) {
+                    el.remove();
+                    return;
+                }
+                // Check inline style (works on detached nodes)
+                if (el.style.display === 'none' || el.style.visibility === 'hidden') {
+                    el.remove();
+                    return;
+                }
+            });
+
+            return JSON.stringify({
+                html: clone.outerHTML,
+                visible_indices: visibleIndices
+            });
+        })()
+        """
+
+        try:
+            result = await self.evaluate(script)
+            if isinstance(result, str):
+                try:
+                    return json.loads(result)
+                except json.JSONDecodeError:
+                    pass
+            elif isinstance(result, dict):
+                 return result
+
+            # Fallback
+            return {"html": "", "visible_indices": []}
+        except Exception as e:
+            print(f"⚠️ Failed to get filtered html: {e}")
+            return {"html": "", "visible_indices": []}
+
     async def click_element(self, selector: str, description: str = "") -> bool:
         """
         Click an element using a CSS selector.

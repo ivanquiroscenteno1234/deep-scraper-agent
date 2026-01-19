@@ -27,22 +27,6 @@ from deep_scraper.graph.nodes.config import (
 # By compiling regexes at the module level, we avoid re-compiling them on every function call.
 # This provides a significant performance boost when these functions are called frequently.
 
-# For filter_hidden_columns_from_html
-_TH_PATTERN = re.compile(r'<th([^>]*)>(.*?)</th>', re.IGNORECASE | re.DOTALL)
-_HIDDEN_PATTERNS = [
-    re.compile(r'class\s*=\s*["\'][^"\']*\b(hidden|hide)\b[^"\']*["\']', re.IGNORECASE),
-    re.compile(r'style\s*=\s*["\'][^"\']*display\s*:\s*none[^"\']*["\']', re.IGNORECASE),
-    re.compile(r'style\s*=\s*["\'][^"\']*visibility\s*:\s*hidden[^"\']*["\']', re.IGNORECASE),
-]
-_HIDDEN_CELL_PATTERN = re.compile(
-    r'<(th|td)\s+[^>]*class\s*=\s*["\'][^"\']*\b(hidden|hide)\b[^"\']*["\'][^>]*>.*?</\1>',
-    re.IGNORECASE | re.DOTALL
-)
-_HIDDEN_STYLE_PATTERN = re.compile(
-    r'<(th|td)\s+[^>]*style\s*=\s*["\'][^"\']*display\s*:\s*none[^"\']*["\'][^>]*>.*?</\1>',
-    re.IGNORECASE | re.DOTALL
-)
-
 # For node_capture_columns_mcp
 _JSON_PATTERN = re.compile(r'\{.*\}', re.DOTALL)
 _TABLE_PATTERN = re.compile(r'<table[^>]*>.*?</table>', re.DOTALL | re.IGNORECASE)
@@ -71,46 +55,6 @@ _GRID_CLASS_PATTERN = re.compile(
 )
 
 
-def filter_hidden_columns_from_html(html: str) -> Tuple[str, List[int]]:
-    """
-    Filter out hidden table columns from HTML and return visible column indices.
-    
-    Detects columns hidden via:
-    - CSS class="hidden", class="hide", or class containing "hidden"
-    - Inline style display:none or visibility:hidden
-    
-    Returns:
-        Tuple of (filtered_html, visible_column_indices)
-    """
-    # Find all table header cells and track which are visible
-    visible_indices = []
-
-    def is_hidden(attrs: str) -> bool:
-        for pattern in _HIDDEN_PATTERNS:
-            if pattern.search(attrs):
-                return True
-        return False
-    
-    # Process table headers to find visible column indices
-    all_ths = _TH_PATTERN.findall(html)
-    for i, (attrs, content) in enumerate(all_ths):
-        if not is_hidden(attrs):
-            visible_indices.append(i)
-    
-    # Also filter <td> elements with hidden class to clean up the sample data shown to LLM
-    # This helps LLM understand which columns actually contain visible data
-    filtered_html = html
-    
-    # Remove entire hidden <th> and <td> elements from sample HTML for cleaner LLM analysis
-    # Match th/td with hidden class and remove them
-    filtered_html = _HIDDEN_CELL_PATTERN.sub('', filtered_html)
-    
-    # Also remove cells with inline display:none
-    filtered_html = _HIDDEN_STYLE_PATTERN.sub('', filtered_html)
-    
-    return filtered_html, visible_indices
-
-
 async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
     """
     Capture grid columns using MCP snapshot and LLM.
@@ -129,14 +73,16 @@ async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
     browser = await get_mcp_browser()
     
     await asyncio.sleep(2)
-    snapshot = await browser.get_snapshot()
-    raw_content = snapshot.get("html", str(snapshot))
     
-    # Filter hidden columns BEFORE sending to LLM
-    filtered_html, visible_indices = filter_hidden_columns_from_html(raw_content)
+    # Bolt ⚡ Optimization: Use browser-side filtering instead of fetching full HTML + Python regex
+    # This reduces network payload and CPU usage significantly
+    result = await browser.get_filtered_html_with_indices()
+    filtered_html = result.get("html", "")
+    visible_indices = result.get("visible_indices", [])
+
     content = clean_html_for_llm(filtered_html, max_length=COLUMN_HTML_LIMIT)
     
-    log.info(f"Got snapshot ({len(raw_content)} chars, filtered to {len(filtered_html)} chars)")
+    log.info(f"Got filtered snapshot ({len(filtered_html)} chars)")
     if visible_indices:
         log.info(f"Detected {len(visible_indices)} visible column indices: {visible_indices[:20]}...")
     
@@ -145,13 +91,13 @@ async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:
     
     # ID-based patterns (using pre-compiled regex for performance)
     for pattern, selector in _GRID_ID_PATTERNS:
-        if pattern.search(raw_content):
+        if pattern.search(filtered_html):
             if selector not in discovered_selectors:
                 discovered_selectors.append(selector)
                 log.debug(f"Found grid ID: {selector}")
     
     # BOLT ⚡: Optimized class-based selector discovery using a single regex pass.
-    for match in _GRID_CLASS_PATTERN.finditer(raw_content):
+    for match in _GRID_CLASS_PATTERN.finditer(filtered_html):
         class_name = match.group(1).lower()
         selector = _GRID_CLASS_MAP.get(class_name)
         if selector and selector not in discovered_selectors:
