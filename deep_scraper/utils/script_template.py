@@ -84,19 +84,24 @@ These are the VISIBLE data columns. Hidden columns and icon columns have been fi
 8. **Output CSV**: Save results to CSV in the `output/data/` folder relative to the script's directory parent (i.e., `../output/data/` from script location or use absolute path based on `__file__`).
 
 9. **PAGE LOAD WAITS AFTER CLICKS (CRITICAL)**:
-   - After EVERY `.click()` action, you MUST wait for the page to load:
-     ```python
-     element.click()
-     page.wait_for_load_state("domcontentloaded", timeout=5000)
-     ```
-   - For actions that trigger navigation or AJAX loads, use:
-     ```python
-     button.click()
-     page.wait_for_load_state("networkidle", timeout=5000)
-     ```
-   - This prevents race conditions where the script runs faster than the page loads.
-   - Apply this pattern to: disclaimer accepts, form submissions, popup closes, navigation clicks.
-   - **NEVER** use `page.click(\"selector\")` directly. **ALWAYS** use `page.locator(\"selector\").click()` followed by a wait.
+    - After EVERY `.click()` action, you MUST:
+      1. Wait for page load state
+      2. Add a 1 second wait for regular actions, or 5 seconds when waiting for grid to load
+      ```python
+      element.click()
+      page.wait_for_load_state("domcontentloaded", timeout=5000)
+      time.sleep(1)  # MANDATORY: Wait 1 second after regular clicks
+      ```
+    - For actions that trigger grid loading (search submit, popup Done buttons), use 5 seconds:
+      ```python
+      search_button.click()
+      page.wait_for_load_state("networkidle", timeout=5000)
+      time.sleep(5)  # MANDATORY: Wait 5 seconds when expecting grid results
+      ```
+    - This prevents race conditions where the script runs faster than the page loads.
+    - Apply this pattern to: disclaimer accepts, form submissions, popup closes, navigation clicks.
+    - **NEVER** use `page.click(\"selector\")` directly. **ALWAYS** use `page.locator(\"selector\").click()` followed by waits.
+    - **ALSO ADD time.sleep(1) AFTER**: Every `.fill()`, `.type()`, `.press()`, `.check()`, `.select_option()`, and any JavaScript `evaluate()` calls.
 
 10. **ACCLAIMWEB SITES (brevardclerk, etc.) - ROW SELECTOR**:
     - For AcclaimWeb/Telerik grid sites (URL contains `AcclaimWeb`), the data rows are inside `.t-grid-content`
@@ -139,6 +144,7 @@ import sys
 import os
 import csv
 import datetime
+import time
 from playwright.sync_api import sync_playwright
 
 SITE_NAME = "{site_name}"
@@ -167,6 +173,7 @@ def main():
             print("[STEP 1] Navigating to URL...")
             page.goto(TARGET_URL, wait_until="domcontentloaded", timeout=5000)
             page.wait_for_load_state("networkidle", timeout=5000)
+            time.sleep(1)  # MANDATORY: Wait 1 second after navigation
             
             # STEP 2: Accept Disclaimer (if present)
             # CRITICAL: Always wait after clicks!
@@ -174,19 +181,25 @@ def main():
             try:
                 page.locator("#btnButton").click()  # Use recorded selector
                 page.wait_for_load_state("domcontentloaded", timeout=5000)
+                time.sleep(1)  # MANDATORY: Wait 1 second after click
             except:
                 pass  # Disclaimer may not appear
             
             # STEP 3-5: Fill form fields using recorded selectors
+            # Each fill MUST be followed by time.sleep(1)
             # page.fill("#SearchOnName", search_term)
+            # time.sleep(1)  # MANDATORY: Wait 1 second after fill
             # page.fill("#RecordDateFrom", start_date)
+            # time.sleep(1)  # MANDATORY: Wait 1 second after fill
             # page.fill("#RecordDateTo", end_date)
+            # time.sleep(1)  # MANDATORY: Wait 1 second after fill
             
             # STEP 6: Submit search
             # CRITICAL: Always wait after search click!
             print("[STEP 6] Submitting search...")
             page.locator("#btnSearch").click()  # Use recorded selector
             page.wait_for_load_state("domcontentloaded", timeout=5000)
+            time.sleep(5)  # MANDATORY: Wait 5 seconds - expecting grid results
             
             # ROBUST WAIT AFTER SEARCH:
             # Many sites show a "Name Selection" popup after search.
@@ -212,6 +225,7 @@ def main():
                         print(f"[STEP 6b] Handling popup with {{popup_sel}}...")
                         popup_btn.first.click()
                         page.wait_for_load_state("networkidle", timeout=5000)
+                        time.sleep(5)  # MANDATORY: Wait 5 seconds - grid should load after popup
                         break  # Exit loop once popup is handled
                 except:
                     continue  # Try next selector

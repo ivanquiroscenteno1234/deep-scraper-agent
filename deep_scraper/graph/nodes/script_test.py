@@ -24,6 +24,7 @@ from deep_scraper.graph.nodes.config import (
     StructuredLogger,
     MAX_SCRIPT_FIX_ATTEMPTS,
     SCRIPT_TEST_TIMEOUT_SECONDS,
+    reset_mcp_browser,
 )
 
 
@@ -62,7 +63,11 @@ async def node_test_script(state: AgentState) -> Dict[str, Any]:
             cwd=os.getcwd()
         )
         
+        # Log full output for debugging (truncated)
         log.debug(f"Script stdout ({len(result.stdout)} chars)")
+        # Log the actual output content for debugging (last 500 chars to see result)
+        if result.stdout:
+            log.info(f"Script output tail: ...{result.stdout[-500:]}")
         if result.stderr:
             log.debug(f"Script stderr ({len(result.stderr)} chars)")
         
@@ -95,14 +100,34 @@ async def node_test_script(state: AgentState) -> Dict[str, Any]:
                         "logs": (state.get("logs") or []) + log.get_logs()
                     }
                 else:
-                    error_msg = "Script completed but extracted 0 rows"
-                    log.error(error_msg)
-                    return {
-                        "status": "SCRIPT_FAILED",
-                        "script_test_attempts": attempts,
-                        "script_error": f"{error_msg}\n\nOutput:\n{result.stdout}",
-                        "logs": (state.get("logs") or []) + log.get_logs()
-                    }
+                    # Check if this is a legitimate "no data" scenario (not an error)
+                    no_data_patterns = [
+                        "no results found",
+                        "no data found",
+                        "no records found",
+                        "0 rows",
+                    ]
+                    stdout_lower = result.stdout.lower()
+                    is_no_data_success = any(p in stdout_lower for p in no_data_patterns) and "success" in stdout_lower
+                    
+                    if is_no_data_success:
+                        log.success("Script passed! (No data for search criteria - this is OK)")
+                        return {
+                            "status": "SCRIPT_TESTED",
+                            "script_test_attempts": attempts,
+                            "script_error": None,
+                            "logs": (state.get("logs") or []) + log.get_logs()
+                        }
+                    else:
+                        error_msg = "Script completed but extracted 0 rows (and no 'no data' message found)"
+                        log.error(error_msg)
+                        log.error(f"Full output: {result.stdout}")
+                        return {
+                            "status": "SCRIPT_FAILED",
+                            "script_test_attempts": attempts,
+                            "script_error": f"{error_msg}\n\nOutput:\n{result.stdout}",
+                            "logs": (state.get("logs") or []) + log.get_logs()
+                        }
                     
             elif "No results found" in result.stdout:
                 log.success("Script works (no results for search term)")
