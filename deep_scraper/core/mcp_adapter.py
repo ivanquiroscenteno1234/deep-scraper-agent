@@ -9,7 +9,7 @@ See .agent/workflows/project-specification.md for workflow details.
 
 import asyncio
 import json
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 import os
 
 from .mcp_client import PlaywrightMCPClient, get_mcp_client, reset_mcp_client
@@ -183,6 +183,74 @@ class MCPBrowserAdapter:
             print(f"⚠️ Failed to get snapshot: {e}")
             return {}
     
+    async def get_filtered_html_with_indices(self) -> Tuple[str, List[int]]:
+        """
+        Get HTML with hidden elements removed and identify visible column indices.
+
+        Bolt ⚡ Optimization:
+        - Executes filtering in-browser to reduce payload size.
+        - Uses native DOM methods for reliable visibility detection.
+        - Removes scripts, styles, and hidden elements before transmission.
+
+        Returns:
+            Tuple of (cleaned_html, visible_indices)
+        """
+        if not self.mcp:
+            return "", []
+
+        script = """
+        (() => {
+            // 1. Identify visible column indices from LIVE DOM using computed styles
+            const ths = Array.from(document.querySelectorAll('th'));
+            const visibleIndices = [];
+            ths.forEach((th, index) => {
+                const style = window.getComputedStyle(th);
+                const isHidden = style.display === 'none' ||
+                                 style.visibility === 'hidden' ||
+                                 th.classList.contains('hidden') ||
+                                 th.classList.contains('hide');
+                if (!isHidden) visibleIndices.push(index);
+            });
+
+            // 2. Prepare cleaned HTML from CLONE
+            const clone = document.documentElement.cloneNode(true);
+
+            // Remove scripts, styles, SVGs (standard cleanup)
+            const toRemove = clone.querySelectorAll('script, style, svg, noscript, iframe');
+            toRemove.forEach(el => el.remove());
+
+            // Remove comments
+            const iterator = document.createNodeIterator(clone, NodeFilter.SHOW_COMMENT);
+            let currentNode;
+            const comments = [];
+            while (currentNode = iterator.nextNode()) {
+                comments.push(currentNode);
+            }
+            comments.forEach(c => c.remove());
+
+            // Remove hidden elements (by class/inline style only, as clone isn't rendered)
+            // Matches Python logic: class="hidden", class="hide", style="display:none"
+            const hiddenEls = clone.querySelectorAll('.hidden, .hide, [style*="display: none"], [style*="display:none"], [style*="visibility: hidden"], [style*="visibility:hidden"]');
+            hiddenEls.forEach(el => el.remove());
+
+            return JSON.stringify({
+                html: clone.outerHTML,
+                indices: visibleIndices
+            });
+        })();
+        """
+
+        try:
+            result = await self.evaluate(script)
+            if not result:
+                return "", []
+
+            data = json.loads(result)
+            return data.get("html", ""), data.get("indices", [])
+        except Exception as e:
+            print(f"⚠️ Failed to get filtered HTML: {e}")
+            return "", []
+
     async def click_element(self, selector: str, description: str = "") -> bool:
         """
         Click an element using a CSS selector.
