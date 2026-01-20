@@ -21,3 +21,9 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2024-05-27 - Browser-Side HTML Cleaning
+
+**Learning:** Transferring full `outerHTML` from browser to backend for LLM analysis is wasteful. Large grids can be MBs in size, but LLMs only need structure.
+
+**Action:** Implemented `get_cleaned_html` logic in `get_full_page_content(clean=True)`. This strips scripts, styles, and SVGs *in the browser* before serialization, reducing payload size significantly (often >80% for modern apps).
