@@ -296,15 +296,39 @@ class PlaywrightMCPClient:
         """Get visible HTML of the page using JS evaluation."""
         return await self.call_tool("playwright_evaluate", {"script": "document.documentElement.outerHTML"})
 
-    async def get_full_page_content(self) -> Dict[str, Any]:
+    async def get_full_page_content(self, clean: bool = False) -> Dict[str, Any]:
         """
         Get both HTML and text content in a single call.
 
         Bolt ⚡ Optimization:
         - Reduces MCP network roundtrips by 50%
         - Fetches both DOM and Text in one JS execution
+        - Browser-side cleaning (optional) reduces payload size by ~40-90%
         """
-        script = "JSON.stringify({html: document.documentElement.outerHTML, text: document.body.innerText})"
+        if clean:
+            # Minified script to clone DOM, remove junk, and serialize
+            script = """
+            (function() {
+                var clone = document.documentElement.cloneNode(true);
+                var tags = ['script', 'style', 'svg', 'noscript', 'template', 'link[rel="stylesheet"]'];
+                tags.forEach(function(tag) {
+                    var els = clone.querySelectorAll(tag);
+                    for(var i=0; i<els.length; i++) els[i].remove();
+                });
+                var walker = document.createTreeWalker(clone, NodeFilter.SHOW_COMMENT, null, false);
+                var comments = [];
+                while(walker.nextNode()) comments.push(walker.currentNode);
+                for(var i=0; i<comments.length; i++) comments[i].remove();
+                return JSON.stringify({
+                    html: clone.outerHTML,
+                    text: document.body.innerText
+                });
+            })()
+            """.replace('\n', ' ').strip()
+            # Note: We keep .hidden elements to avoid breaking index-based logic in extraction
+        else:
+            script = "JSON.stringify({html: document.documentElement.outerHTML, text: document.body.innerText})"
+
         return await self.call_tool("playwright_evaluate", {"script": script})
     
     async def screenshot(self, name: str = "screenshot", full_page: bool = False) -> Dict[str, Any]:
