@@ -182,6 +182,67 @@ class MCPBrowserAdapter:
         except Exception as e:
             print(f"⚠️ Failed to get snapshot: {e}")
             return {}
+
+    async def get_filtered_html_with_indices(self) -> Dict[str, Any]:
+        """
+        Get cleaned HTML and visible column indices using browser-side processing.
+
+        Bolt ⚡ Optimization:
+        - Executes filtering in browser (faster than Python regex)
+        - Removes scripts, styles, SVGs, and hidden elements
+        - Identifies visible columns using computed styles (more accurate)
+        - Returns single JSON object with both data points
+        """
+        if not self.mcp:
+            return {"html": "", "visible_indices": []}
+
+        script = """
+        (function() {
+            // 1. Identify visible indices from LIVE DOM
+            const visibleIndices = [];
+            const ths = document.querySelectorAll('th');
+            Array.from(ths).forEach((th, index) => {
+                const style = window.getComputedStyle(th);
+                const isHidden = style.display === 'none' ||
+                                 style.visibility === 'hidden' ||
+                                 th.classList.contains('hidden') ||
+                                 th.classList.contains('hide');
+                if (!isHidden) {
+                    visibleIndices.push(index);
+                }
+            });
+
+            // 2. Create a clean HTML snapshot
+            const clone = document.documentElement.cloneNode(true);
+
+            // Remove heavy elements
+            const scripts = clone.querySelectorAll('script, style, noscript, svg');
+            scripts.forEach(el => el.remove());
+
+            // Remove hidden elements (matching regex logic + common patterns)
+            const allElements = clone.querySelectorAll('*');
+            Array.from(allElements).forEach(el => {
+                if (el.style.display === 'none' || el.style.visibility === 'hidden' ||
+                    el.classList.contains('hidden') || el.classList.contains('hide')) {
+                    el.remove();
+                }
+            });
+
+            return JSON.stringify({
+                html: clone.outerHTML,
+                visible_indices: visibleIndices
+            });
+        })()
+        """
+
+        try:
+            result = await self.evaluate(script)
+            if isinstance(result, str):
+                return json.loads(result)
+            return {"html": str(result), "visible_indices": []}
+        except Exception as e:
+            print(f"⚠️ Failed to get filtered HTML: {e}")
+            return {"html": "", "visible_indices": []}
     
     async def click_element(self, selector: str, description: str = "") -> bool:
         """
