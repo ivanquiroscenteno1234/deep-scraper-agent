@@ -21,3 +21,9 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2024-05-24 - Browser-Side HTML Cleaning
+
+**Learning:** Transferring full HTML snapshots (often >500KB with scripts/styles/SVGs) over MCP just to strip them in Python using regex is extremely inefficient. It consumes network bandwidth and CPU cycles for serialization/deserialization.
+
+**Action:** Implemented `get_full_page_content(clean=True)` which executes a JS script to clone the DOM and remove `script`, `style`, `svg`, `noscript`, `link`, and comments *before* serialization. This reduces payload size by ~40-90% and ensures the LLM receives clean input faster.
