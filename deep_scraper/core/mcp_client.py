@@ -306,6 +306,41 @@ class PlaywrightMCPClient:
         """
         script = "JSON.stringify({html: document.documentElement.outerHTML, text: document.body.innerText})"
         return await self.call_tool("playwright_evaluate", {"script": script})
+
+    async def get_filtered_html_with_indices(self) -> Dict[str, Any]:
+        """
+        Get HTML with hidden elements removed and visible column indices.
+
+        Bolt ⚡ Optimization:
+        - Filters HTML in browser to reduce network payload.
+        - Uses getComputedStyle for accurate visibility detection.
+        - Returns visible indices in same call.
+        """
+        script = """
+        (function() {
+            const result = { html: "", visible_indices: [] };
+
+            // 1. Get visible indices from REAL DOM (accurate)
+            const ths = Array.from(document.querySelectorAll('th'));
+            result.visible_indices = ths.map((th, i) => {
+                const style = window.getComputedStyle(th);
+                const isHidden = style.display === 'none' ||
+                                style.visibility === 'hidden' ||
+                                th.classList.contains('hidden') ||
+                                th.classList.contains('hide');
+                return isHidden ? -1 : i;
+            }).filter(i => i !== -1);
+
+            // 2. Create a cleaned HTML string using a clone
+            const clone = document.documentElement.cloneNode(true);
+            const hiddenEls = clone.querySelectorAll('.hidden, .hide, [style*="display: none"], [style*="visibility: hidden"]');
+            hiddenEls.forEach(el => el.remove());
+            result.html = clone.outerHTML;
+
+            return JSON.stringify(result);
+        })();
+        """
+        return await self.call_tool("playwright_evaluate", {"script": script})
     
     async def screenshot(self, name: str = "screenshot", full_page: bool = False) -> Dict[str, Any]:
         """Take a screenshot of the page."""
