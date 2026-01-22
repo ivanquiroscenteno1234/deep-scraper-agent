@@ -182,6 +182,30 @@ class MCPBrowserAdapter:
         except Exception as e:
             print(f"⚠️ Failed to get snapshot: {e}")
             return {}
+
+    async def get_filtered_html_with_indices(self) -> Tuple[str, list]:
+        """
+        Get HTML with hidden elements removed and visible column indices.
+
+        Returns:
+            Tuple of (html_content, visible_indices)
+        """
+        if not self.mcp:
+            return "", []
+
+        try:
+            result = await self.mcp.get_filtered_html_with_indices()
+            data_str = result.get("result", "{}")
+
+            try:
+                data = json.loads(data_str)
+                return data.get("html", ""), data.get("visible_indices", [])
+            except (json.JSONDecodeError, TypeError):
+                # Fallback
+                return str(data_str), []
+        except Exception as e:
+            print(f"⚠️ Failed to get filtered html: {e}")
+            return "", []
     
     async def click_element(self, selector: str, description: str = "") -> bool:
         """
