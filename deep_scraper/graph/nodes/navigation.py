@@ -119,8 +119,14 @@ async def node_analyze_mcp(state: AgentState) -> Dict[str, Any]:
     ]
     # Use page_content (cleaned) instead of raw_html to avoid hidden elements
     # Also require actual <input elements to be present - not just search keywords
-    has_input_elements = '<input' in page_content.lower()
-    has_search_indicators = any(indicator.lower() in page_content.lower() for indicator in search_indicators)
+    page_content_lower = page_content.lower()
+    has_input_elements = '<input' in page_content_lower
+
+    # Bolt ⚡ Optimization: Hoist .lower() out of the loop and use pre-calculated list
+    # This prevents creating a lowercase copy of the massive page_content string for every indicator
+    search_indicators_lower = [s.lower() for s in search_indicators]
+    has_search_indicators = any(indicator in page_content_lower for indicator in search_indicators_lower)
+
     has_search_inputs = has_input_elements and has_search_indicators
     
     log.info(f"Got snapshot ({len(raw_html)} chars, cleaned to {len(page_content)}). Has inputs: {has_input_elements}, Has indicators: {has_search_indicators}")

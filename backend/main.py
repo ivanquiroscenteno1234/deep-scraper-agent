@@ -46,6 +46,13 @@ class ExecuteRequest(BaseModel):
 # In-memory store for agent status
 runs = {}
 
+# Bolt ⚡ Optimization: Pre-compile regex patterns
+# Moving these outside the function or compiling them once is better
+import re
+_SUCCESS_PATTERN = re.compile(r"(?:SUCCESS|\[SUCCESS\]|\[OK\])", re.IGNORECASE)
+_ROW_COUNT_PATTERN = re.compile(r"(?:Extracted|Found|Saved|Saving)\s+(\d+)\s+(?:rows|records|items)", re.IGNORECASE)
+_CSV_PATH_PATTERN = re.compile(r"(?:saved to|CSV saved:|to|Saved)\s+([^\s]+\.csv)", re.IGNORECASE)
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -188,6 +195,11 @@ async def execute_script(request: ExecuteRequest):
     import subprocess
     import re
     
+    # Bolt ⚡ Optimization: Pre-compile regex patterns
+    # Moving these outside the function or compiling them once is better,
+    # but at least let's avoid re-compilation in loops if we had any.
+    # Here we improve readability and avoid large string copies.
+
     try:
         # BOLT ⚡: Replaced blocking subprocess.run with async create_subprocess_exec
         # This prevents the long-running scraper from blocking the FastAPI event loop
@@ -208,20 +220,19 @@ async def execute_script(request: ExecuteRequest):
         stdout_text = stdout_bytes.decode()
         stderr_text = stderr_bytes.decode()
 
-        # 1. Flexible Success Detection
-        stdout_upper = stdout_text.upper()
-        is_success = "SUCCESS" in stdout_upper or "[SUCCESS]" in stdout_upper or "[OK]" in stdout_upper
+        # 1. Flexible Success Detection (Bolt ⚡: Avoid creating upper() copy of full stdout)
+        is_success = bool(_SUCCESS_PATTERN.search(stdout_text))
         
         # 2. Extract Row Count
         row_count = 0
-        row_match = re.search(r'(?:Extracted|Found|Saved|Saving)\s+(\d+)\s+(?:rows|records|items)', stdout_text, re.IGNORECASE)
+        row_match = _ROW_COUNT_PATTERN.search(stdout_text)
         if row_match:
             row_count = int(row_match.group(1))
             
         # 3. CSV File Resolution
         csv_file = None
         # Try finding path in stdout - support multiple formats
-        csv_path_match = re.search(r'(?:saved to|CSV saved:|to|Saved)\s+([^\s]+\.csv)', stdout_text, re.IGNORECASE)
+        csv_path_match = _CSV_PATH_PATTERN.search(stdout_text)
         if csv_path_match:
             csv_file = csv_path_match.group(1).strip()
             
