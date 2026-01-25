@@ -21,3 +21,7 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2025-01-25 - String Processing Optimization
+**Learning:** Found repeated `.lower()` calls on large HTML strings (100KB+) inside generator expressions. This creates extensive temporary string allocations, significantly impacting CPU usage.
+**Action:** Hoist `.lower()` calls out of loops and pre-compile/pre-process static lists (like search indicators) at the module level.
