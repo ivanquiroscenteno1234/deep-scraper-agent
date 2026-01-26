@@ -24,6 +24,24 @@ from deep_scraper.graph.nodes.config import (
 )
 
 
+# Bolt ⚡ Optimization: Pre-compile regex and hoist constants to module level
+_SEARCH_INDICATORS = [
+    # AcclaimWeb patterns
+    "#SearchOnName", "SearchOnName", "#RecordDateFrom", "#RecordDateTo",
+    # Landmark Web patterns (Flagler, etc.)
+    "name-Name", "#name-Name", "beginDate-Name", "endDate-Name",
+    "#nameSearchModalSubmit", "nameSearchModal",
+    # Generic patterns
+    'type="search"', 'name="searchTerm"', 'id="searchInput"',
+    "SearchCriteria", "searchForm", "txtSearch",
+]
+# Pre-lowercase for case-insensitive search
+_SEARCH_INDICATORS_LOWER = [s.lower() for s in _SEARCH_INDICATORS]
+
+# Pre-compile regex for county name extraction
+_COUNTY_NAME_REGEX = re.compile(r'(\w+)clerk', re.IGNORECASE)
+
+
 async def node_navigate_mcp(state: AgentState) -> Dict[str, Any]:
     """
     Navigate to target URL using MCP and start codegen session.
@@ -56,7 +74,8 @@ async def node_navigate_mcp(state: AgentState) -> Dict[str, Any]:
     if not browser._codegen_started:
         parsed = urlparse(url)
         hostname = parsed.hostname or "unknown"
-        county_match = re.search(r'(\w+)clerk', hostname, re.IGNORECASE)
+        # Bolt ⚡ Optimization: Use pre-compiled regex
+        county_match = _COUNTY_NAME_REGEX.search(hostname)
         if county_match:
             county_name = county_match.group(1).lower()
         else:
@@ -106,21 +125,16 @@ async def node_analyze_mcp(state: AgentState) -> Dict[str, Any]:
     
     # Heuristic check: If we see search inputs, it's likely a search page
     # even if LLM gets distracted by persistent disclaimer text.
-    # Expanded patterns for various clerk systems
-    search_indicators = [
-        # AcclaimWeb patterns
-        "#SearchOnName", "SearchOnName", "#RecordDateFrom", "#RecordDateTo",
-        # Landmark Web patterns (Flagler, etc.)
-        "name-Name", "#name-Name", "beginDate-Name", "endDate-Name",
-        "#nameSearchModalSubmit", "nameSearchModal",
-        # Generic patterns
-        'type="search"', 'name="searchTerm"', 'id="searchInput"',
-        "SearchCriteria", "searchForm", "txtSearch",
-    ]
+    # Expanded patterns for various clerk systems are now in _SEARCH_INDICATORS
+
     # Use page_content (cleaned) instead of raw_html to avoid hidden elements
     # Also require actual <input elements to be present - not just search keywords
-    has_input_elements = '<input' in page_content.lower()
-    has_search_indicators = any(indicator.lower() in page_content.lower() for indicator in search_indicators)
+    # Bolt ⚡ Optimization: Call .lower() once and reuse
+    page_content_lower = page_content.lower()
+
+    has_input_elements = '<input' in page_content_lower
+    # Bolt ⚡ Optimization: Use pre-lowercased indicators and reused content string
+    has_search_indicators = any(indicator in page_content_lower for indicator in _SEARCH_INDICATORS_LOWER)
     has_search_inputs = has_input_elements and has_search_indicators
     
     log.info(f"Got snapshot ({len(raw_html)} chars, cleaned to {len(page_content)}). Has inputs: {has_input_elements}, Has indicators: {has_search_indicators}")
