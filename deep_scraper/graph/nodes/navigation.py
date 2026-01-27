@@ -100,8 +100,11 @@ async def node_analyze_mcp(state: AgentState) -> Dict[str, Any]:
     browser = await get_mcp_browser()
     
     # Get page snapshot and clean it for LLM
-    snapshot = await browser.get_snapshot()
-    raw_html = snapshot.get("html", str(snapshot))
+    # Bolt ⚡ Optimization: Fetch cleaned HTML directly from browser to save network/CPU
+    # This avoids fetching full HTML (~2MB) and cleaning it in Python
+    raw_html = await browser.get_cleaned_html()
+
+    # We still run clean_html_for_llm for safety (truncation + whitespace normalization)
     page_content = clean_html_for_llm(raw_html, max_length=100000)
     
     # Heuristic check: If we see search inputs, it's likely a search page
@@ -123,7 +126,7 @@ async def node_analyze_mcp(state: AgentState) -> Dict[str, Any]:
     has_search_indicators = any(indicator.lower() in page_content.lower() for indicator in search_indicators)
     has_search_inputs = has_input_elements and has_search_indicators
     
-    log.info(f"Got snapshot ({len(raw_html)} chars, cleaned to {len(page_content)}). Has inputs: {has_input_elements}, Has indicators: {has_search_indicators}")
+    log.info(f"Got snapshot (cleaned in browser to {len(raw_html)} chars). Has inputs: {has_input_elements}, Has indicators: {has_search_indicators}")
 
     
     structured_llm = llm.with_structured_output(NavigationDecision)

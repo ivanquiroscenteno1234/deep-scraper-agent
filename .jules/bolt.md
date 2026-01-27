@@ -21,3 +21,15 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2025-02-18 - Browser-Side HTML Cleaning
+
+**Learning:** Fetching full HTML snapshots (~2MB) and cleaning them with Python regex consumes significant bandwidth and CPU.
+
+**Action:** Implemented `get_cleaned_html()` which uses a browser-side JS script to clone the DOM and remove scripts, styles, and hidden elements *before* transfer. This reduces payload size by >90% for LLM analysis steps.
+
+## 2025-02-18 - Missing Core Dependencies
+
+**Learning:** The `requirements.txt` file is missing `mcp` and `langgraph`, which are core dependencies. Additionally, `deep_scraper/graph/nodes/config.py` enforces `GOOGLE_API_KEY` presence at import time.
+
+**Action:** Always install `mcp` manually (`pip install mcp`) and set `GOOGLE_API_KEY=dummy` before running tests.
