@@ -182,6 +182,29 @@ class MCPBrowserAdapter:
         except Exception as e:
             print(f"⚠️ Failed to get snapshot: {e}")
             return {}
+
+    async def get_cleaned_html(self) -> str:
+        """
+        Get cleaned HTML content (without scripts/styles/comments) for LLM analysis.
+
+        Bolt ⚡ Optimization:
+        - Delegates cleaning to browser-side JS execution
+        - Returns only the cleaned string (significantly smaller)
+        """
+        if not self.mcp:
+            return ""
+
+        try:
+            result = await self.mcp.get_cleaned_html()
+
+            # Helper to extract string result
+            if isinstance(result, dict):
+                content = result.get("result") or result.get("content") or ""
+                return str(content)
+            return str(result)
+        except Exception as e:
+            print(f"⚠️ Failed to get cleaned HTML: {e}")
+            return ""
     
     async def click_element(self, selector: str, description: str = "") -> bool:
         """
