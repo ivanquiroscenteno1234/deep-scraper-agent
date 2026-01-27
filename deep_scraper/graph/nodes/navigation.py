@@ -100,8 +100,8 @@ async def node_analyze_mcp(state: AgentState) -> Dict[str, Any]:
     browser = await get_mcp_browser()
     
     # Get page snapshot and clean it for LLM
-    snapshot = await browser.get_snapshot()
-    raw_html = snapshot.get("html", str(snapshot))
+    # Bolt ⚡ Optimization: Fetch pre-cleaned HTML from browser to reduce payload
+    raw_html = await browser.get_cleaned_html()
     page_content = clean_html_for_llm(raw_html, max_length=100000)
     
     # Heuristic check: If we see search inputs, it's likely a search page

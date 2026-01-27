@@ -148,6 +148,56 @@ class MCPBrowserAdapter:
         except Exception as e:
             print(f"⚠️ Failed to get content: {e}")
             return ""
+
+    async def get_cleaned_html(self) -> str:
+        """
+        Get the HTML of the page, cleaned of scripts, styles, and hidden elements.
+
+        Bolt ⚡ Optimization:
+        - Performs cleaning in the browser to reduce network payload.
+        - Uses DOM API which is faster and more accurate than server-side regex.
+        - Returns only visible structural content.
+        """
+        if not self.mcp:
+            return ""
+
+        # JavaScript to clone DOM and clean it
+        script = """(function() {
+            try {
+                // Clone the document element to avoid modifying the actual page
+                const clone = document.documentElement.cloneNode(true);
+
+                // Remove unwanted tags
+                const tagsToRemove = ['script', 'style', 'noscript', 'svg', 'iframe', 'link', 'meta'];
+                tagsToRemove.forEach(tag => {
+                    const elements = clone.querySelectorAll(tag);
+                    elements.forEach(el => el.remove());
+                });
+
+                // Remove comments
+                // NodeFilter.SHOW_COMMENT = 128
+                const walker = document.createTreeWalker(clone, 128);
+                const comments = [];
+                while(walker.nextNode()) comments.push(walker.currentNode);
+                comments.forEach(c => c.remove());
+
+                // Remove hidden elements (inline styles)
+                // Note: We use querySelectorAll('*') on the clone.
+                // This only catches inline styles, similar to the previous regex approach but robust.
+                const all = clone.querySelectorAll('*');
+                all.forEach(el => {
+                    if (el.style && (el.style.display === 'none' || el.style.visibility === 'hidden')) {
+                        el.remove();
+                    }
+                });
+
+                return clone.outerHTML;
+            } catch(e) {
+                return "Error: " + e.toString();
+            }
+        })()"""
+
+        return await self.evaluate(script) or ""
     
     async def get_snapshot(self) -> Dict[str, Any]:
         """
