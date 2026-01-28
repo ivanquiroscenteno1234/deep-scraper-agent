@@ -21,3 +21,12 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2024-05-27 - Optimized Page Analysis Loop
+
+**Learning:** Repeatedly calling `page_content.lower()` inside a loop (or generator expression) for checking multiple indicators is O(N*M) and causes excessive memory allocation for large pages (100KB+). Also, `get_snapshot()` was fetching both HTML and Text, forcing the browser to calculate `innerText` which triggers a layout reflow (~100ms cost).
+
+**Action:**
+1.  Moved search indicators to module-level constants and pre-computed their lowercase versions.
+2.  Hoisted `page_content.lower()` out of the check loop.
+3.  Implemented `get_html_snapshot()` in `MCPBrowserAdapter` to fetch only `outerHTML`, avoiding the reflow cost of `innerText`.

@@ -24,6 +24,20 @@ from deep_scraper.graph.nodes.config import (
 )
 
 
+# Bolt ⚡ Optimization: Pre-compile search indicators to avoid re-creation in loop
+_SEARCH_INDICATORS = [
+    # AcclaimWeb patterns
+    "#SearchOnName", "SearchOnName", "#RecordDateFrom", "#RecordDateTo",
+    # Landmark Web patterns (Flagler, etc.)
+    "name-Name", "#name-Name", "beginDate-Name", "endDate-Name",
+    "#nameSearchModalSubmit", "nameSearchModal",
+    # Generic patterns
+    'type="search"', 'name="searchTerm"', 'id="searchInput"',
+    "SearchCriteria", "searchForm", "txtSearch",
+]
+_SEARCH_INDICATORS_LOWER = [ind.lower() for ind in _SEARCH_INDICATORS]
+
+
 async def node_navigate_mcp(state: AgentState) -> Dict[str, Any]:
     """
     Navigate to target URL using MCP and start codegen session.
@@ -100,27 +114,21 @@ async def node_analyze_mcp(state: AgentState) -> Dict[str, Any]:
     browser = await get_mcp_browser()
     
     # Get page snapshot and clean it for LLM
-    snapshot = await browser.get_snapshot()
+    # Bolt ⚡ Optimization: Use get_html_snapshot() to avoid expensive innerText calculation (reflow)
+    snapshot = await browser.get_html_snapshot()
     raw_html = snapshot.get("html", str(snapshot))
     page_content = clean_html_for_llm(raw_html, max_length=100000)
     
     # Heuristic check: If we see search inputs, it's likely a search page
     # even if LLM gets distracted by persistent disclaimer text.
-    # Expanded patterns for various clerk systems
-    search_indicators = [
-        # AcclaimWeb patterns
-        "#SearchOnName", "SearchOnName", "#RecordDateFrom", "#RecordDateTo",
-        # Landmark Web patterns (Flagler, etc.)
-        "name-Name", "#name-Name", "beginDate-Name", "endDate-Name",
-        "#nameSearchModalSubmit", "nameSearchModal",
-        # Generic patterns
-        'type="search"', 'name="searchTerm"', 'id="searchInput"',
-        "SearchCriteria", "searchForm", "txtSearch",
-    ]
+
+    # Bolt ⚡ Optimization: Use pre-computed lowercase indicators and content to avoid repeated lower() calls
+    page_content_lower = page_content.lower()
+
     # Use page_content (cleaned) instead of raw_html to avoid hidden elements
     # Also require actual <input elements to be present - not just search keywords
-    has_input_elements = '<input' in page_content.lower()
-    has_search_indicators = any(indicator.lower() in page_content.lower() for indicator in search_indicators)
+    has_input_elements = '<input' in page_content_lower
+    has_search_indicators = any(indicator in page_content_lower for indicator in _SEARCH_INDICATORS_LOWER)
     has_search_inputs = has_input_elements and has_search_indicators
     
     log.info(f"Got snapshot ({len(raw_html)} chars, cleaned to {len(page_content)}). Has inputs: {has_input_elements}, Has indicators: {has_search_indicators}")

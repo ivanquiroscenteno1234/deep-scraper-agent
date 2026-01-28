@@ -183,6 +183,31 @@ class MCPBrowserAdapter:
             print(f"⚠️ Failed to get snapshot: {e}")
             return {}
     
+    async def get_html_snapshot(self) -> Dict[str, Any]:
+        """
+        Get only HTML snapshot (avoids expensive innerText calculation).
+
+        Bolt ⚡ Optimization:
+        - Reduces reflow overhead by only fetching outerHTML
+        - Returns format compatible with get_snapshot() but without 'text'
+        """
+        if not self.mcp:
+            return {}
+
+        try:
+            # mcp.get_html() returns {'result': '<html>...'}
+            result = await self.mcp.get_html()
+            html_content = result.get("result", "")
+
+            return {
+                "html": html_content,
+                "result": html_content,
+                "text": ""  # Empty text to avoid reflow
+            }
+        except Exception as e:
+            print(f"⚠️ Failed to get HTML snapshot: {e}")
+            return {}
+
     async def click_element(self, selector: str, description: str = "") -> bool:
         """
         Click an element using a CSS selector.
