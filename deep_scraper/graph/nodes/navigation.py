@@ -19,7 +19,6 @@ from deep_scraper.graph.nodes.config import (
     get_mcp_browser,
     reset_mcp_browser,
     NavigationDecision,
-    clean_html_for_llm,
     StructuredLogger,
 )
 
@@ -99,10 +98,10 @@ async def node_analyze_mcp(state: AgentState) -> Dict[str, Any]:
     
     browser = await get_mcp_browser()
     
-    # Get page snapshot and clean it for LLM
-    snapshot = await browser.get_snapshot()
-    raw_html = snapshot.get("html", str(snapshot))
-    page_content = clean_html_for_llm(raw_html, max_length=100000)
+    # Get cleaned page content directly from browser (Bolt ⚡ Optimization)
+    # This skips fetching massive raw HTML and cleaning it in Python
+    page_content = await browser.get_cleaned_html(max_length=100000)
+    raw_html = page_content  # Use cleaned content for fallback checks too
     
     # Heuristic check: If we see search inputs, it's likely a search page
     # even if LLM gets distracted by persistent disclaimer text.
