@@ -20,7 +20,7 @@ def main():
     
     with sync_playwright() as p:
         print("[STEP 1] Launching browser...")
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=True)
         # Fresh context with NO storage state to ensure disclaimer appears
         context = browser.new_context(
             viewport={'width': 1280, 'height': 800},

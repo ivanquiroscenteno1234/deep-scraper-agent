@@ -19,7 +19,7 @@ def main():
     print(f"[INFO] Starting scraper for '{search_term}' (Range: {start_date} - {end_date})")
     
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        browser = p.chromium.launch(headless=True)
         # Fresh context with no storage state
         context = browser.new_context(
             viewport={'width': 1280, 'height': 800},

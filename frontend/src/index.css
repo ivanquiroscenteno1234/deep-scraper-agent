@@ -290,3 +290,139 @@ button:disabled {
 .gap-2 {
   gap: 0.5rem;
 }
+
+/* ============================================
+   SCRIPT EXECUTION ANIMATIONS
+   ============================================ */
+
+/* Spin animation for loader icons */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Pulse glow animation for running scripts */
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(88, 166, 255, 0.3);
+    border-color: rgba(88, 166, 255, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(88, 166, 255, 0.6), 0 0 30px rgba(88, 166, 255, 0.3);
+    border-color: rgba(88, 166, 255, 0.8);
+  }
+}
+
+.script-running {
+  animation: pulse-glow 1.5s ease-in-out infinite;
+  background: rgba(88, 166, 255, 0.15) !important;
+}
+
+/* Shimmer effect for running button */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.btn-running {
+  background: linear-gradient(
+    90deg,
+    var(--accent-color) 0%,
+    #7dbdff 25%,
+    var(--accent-color) 50%,
+    #7dbdff 75%,
+    var(--accent-color) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+
+/* Progress bar pulse */
+@keyframes progress-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.progress-bar-active {
+  animation: progress-pulse 1s ease-in-out infinite;
+}
+
+/* Script completion flash */
+@keyframes success-flash {
+  0% { background: rgba(63, 185, 80, 0.4); }
+  100% { background: transparent; }
+}
+
+@keyframes error-flash {
+  0% { background: rgba(248, 81, 73, 0.4); }
+  100% { background: transparent; }
+}
+
+.script-success {
+  animation: success-flash 0.8s ease-out forwards;
+}
+
+.script-error {
+  animation: error-flash 0.8s ease-out forwards;
+}
+
+/* Checkbox bounce when selected */
+@keyframes checkbox-bounce {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+.checkbox-animate:checked {
+  animation: checkbox-bounce 0.3s ease-out;
+}
+
+/* Stagger fade-in for script list */
+@keyframes fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.script-item {
+  animation: fade-slide-in 0.3s ease-out forwards;
+  transition: all 0.2s ease;
+}
+
+.script-item:hover {
+  transform: translateX(4px);
+}
+
+/* Running indicator dot */
+@keyframes dot-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+.running-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  animation: dot-pulse 1s ease-in-out infinite;
+  display: inline-block;
+  margin-right: 6px;
+}
+
+/* Counter animation */
+@keyframes count-up {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.count-animate {
+  animation: count-up 0.3s ease-out;
+}

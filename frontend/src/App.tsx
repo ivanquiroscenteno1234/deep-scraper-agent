@@ -22,6 +22,20 @@ function App() {
   const [selectedScriptPath, setSelectedScriptPath] = useState('');
   const [isLoadingScripts, setIsLoadingScripts] = useState(false);
 
+  // Parallel execution state
+  const [selectedScripts, setSelectedScripts] = useState<Set<string>>(new Set());
+  const [isParallelRunning, setIsParallelRunning] = useState(false);
+  const [runningScripts, setRunningScripts] = useState<Set<string>>(new Set()); // Track currently running scripts
+  const [completedScripts, setCompletedScripts] = useState<Map<string, 'success' | 'error'>>(new Map()); // Track completion status
+  const [parallelProgress, setParallelProgress] = useState<{
+    total: number;
+    completed: number;
+    successful: number;
+    failed: number;
+    totalRows: number;
+    results: Array<{ script: string; success: boolean; row_count: number; error?: string }>;
+  }>({ total: 0, completed: 0, successful: 0, failed: 0, totalRows: 0, results: [] });
+
   const logEndRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -165,6 +179,133 @@ function App() {
     }
   };
 
+  // Toggle single script selection
+  const toggleScriptSelection = (path: string) => {
+    setSelectedScripts(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(path)) {
+        newSet.delete(path);
+      } else {
+        newSet.add(path);
+      }
+      return newSet;
+    });
+  };
+
+  // Select/deselect all scripts
+  const selectAllScripts = (selectAll: boolean) => {
+    if (selectAll) {
+      setSelectedScripts(new Set(availableScripts.map(s => s.path)));
+    } else {
+      setSelectedScripts(new Set());
+    }
+  };
+
+  // Run selected scripts in parallel
+  const runSelectedScriptsParallel = async () => {
+    if (selectedScripts.size === 0) return;
+
+    setIsParallelRunning(true);
+    setRunningScripts(new Set()); // Reset running scripts
+    setCompletedScripts(new Map()); // Reset completed scripts
+    setParallelProgress({ total: selectedScripts.size, completed: 0, successful: 0, failed: 0, totalRows: 0, results: [] });
+    addLog(`🚀 Starting parallel execution of ${selectedScripts.size} scripts...`, 'info');
+    addLog(`📝 Parameters: query="${query}", range=${startDate} - ${endDate}`, 'info');
+
+    try {
+      // Start parallel execution
+      const response = await fetch('http://localhost:8006/api/execute-parallel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          script_paths: Array.from(selectedScripts),
+          search_query: query,
+          start_date: startDate,
+          end_date: endDate,
+          max_concurrent: 0  // 0 = no limit, run all selected scripts at once
+        }),
+      });
+
+      const { run_id } = await response.json();
+
+      // Connect WebSocket for progress
+      const ws = new WebSocket(`ws://localhost:8006/ws/parallel/${run_id}`);
+
+      ws.onmessage = (event) => {
+        const message = JSON.parse(event.data);
+
+        if (message.type === 'parallel_start') {
+          addLog(`⚡ Running up to ${message.max_concurrent} scripts concurrently`, 'info');
+        }
+
+        if (message.type === 'script_start') {
+          addLog(`▶️ Starting: ${message.script}`, 'step');
+          // Add to running scripts for animation
+          setRunningScripts(prev => new Set([...prev, message.path]));
+        }
+
+        if (message.type === 'script_complete') {
+          if (message.success) {
+            addLog(`✅ ${message.script}: ${message.row_count} rows extracted`, 'success');
+          } else {
+            addLog(`❌ ${message.script}: ${message.error || 'Failed'}`, 'error');
+          }
+          // Remove from running, add to completed
+          setRunningScripts(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(message.path);
+            return newSet;
+          });
+          setCompletedScripts(prev => new Map(prev).set(message.path, message.success ? 'success' : 'error'));
+
+          setParallelProgress(prev => ({
+            ...prev,
+            completed: prev.completed + 1,
+            successful: prev.successful + (message.success ? 1 : 0),
+            failed: prev.failed + (message.success ? 0 : 1),
+            totalRows: prev.totalRows + (message.row_count || 0),
+            results: [...prev.results, message]
+          }));
+        }
+
+        if (message.type === 'parallel_complete') {
+          addLog(`✨ Parallel execution complete: ${message.successful}/${message.total_scripts} succeeded, ${message.total_rows} total rows`, 'success');
+          setRunningScripts(new Set()); // Clear running scripts
+          setParallelProgress(prev => ({
+            ...prev,
+            completed: message.total_scripts,
+            successful: message.successful,
+            failed: message.failed,
+            totalRows: message.total_rows,
+            results: message.results
+          }));
+          setIsParallelRunning(false);
+        }
+
+        if (message.type === 'error') {
+          addLog(`❌ Error: ${message.error}`, 'error');
+          setRunningScripts(new Set());
+          setIsParallelRunning(false);
+        }
+      };
+
+      ws.onerror = () => {
+        addLog('❌ WebSocket connection error', 'error');
+        setRunningScripts(new Set());
+        setIsParallelRunning(false);
+      };
+
+      ws.onclose = () => {
+        setIsParallelRunning(false);
+      };
+
+    } catch (err) {
+      addLog(`❌ Failed to start parallel execution: ${err}`, 'error');
+      setRunningScripts(new Set());
+      setIsParallelRunning(false);
+    }
+  };
+
   const downloadData = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(extractedData, null, 2));
     const downloadAnchorNode = document.createElement('a');
@@ -247,6 +388,11 @@ function App() {
               <div className="flex items-center gap-2">
                 <FolderOpen size={16} color="#58a6ff" />
                 <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Script Library</span>
+                {selectedScripts.size > 0 && (
+                  <span style={{ fontSize: '0.75rem', color: 'var(--accent-color)', background: 'rgba(88, 166, 255, 0.15)', padding: '0.15rem 0.5rem', borderRadius: '4px' }}>
+                    {selectedScripts.size} selected
+                  </span>
+                )}
               </div>
               <button
                 className="btn-secondary"
@@ -260,27 +406,129 @@ function App() {
 
             {availableScripts.length > 0 ? (
               <>
-                <div className="input-group" style={{ marginBottom: '0.75rem' }}>
-                  <label>Select Script</label>
-                  <select
-                    value={selectedScriptPath}
-                    onChange={(e) => setSelectedScriptPath(e.target.value)}
+                {/* Select All / None buttons */}
+                <div className="flex gap-2 mb-3">
+                  <button
+                    className="btn-secondary"
+                    onClick={() => selectAllScripts(true)}
+                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', borderRadius: '4px' }}
                   >
-                    {availableScripts.map((script) => (
-                      <option key={script.path} value={script.path}>
-                        {script.name}
-                      </option>
-                    ))}
-                  </select>
+                    Select All
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => selectAllScripts(false)}
+                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', borderRadius: '4px' }}
+                  >
+                    Select None
+                  </button>
                 </div>
-                <button
-                  className="btn-secondary"
-                  onClick={runGeneratedScript}
-                  disabled={isExecuting || status === 'running' || !selectedScriptPath}
-                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
-                >
-                  {isExecuting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} Run Selected Script
-                </button>
+
+                {/* Script checkboxes */}
+                <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '0.75rem', border: '1px solid var(--border-color)', borderRadius: '4px', padding: '0.5rem' }}>
+                  {availableScripts.map((script, index) => {
+                    const isRunning = runningScripts.has(script.path);
+                    const completionStatus = completedScripts.get(script.path);
+
+                    return (
+                      <label
+                        key={script.path}
+                        className={`flex items-center gap-2 script-item ${isRunning ? 'script-running' : ''} ${completionStatus === 'success' ? 'script-success' : ''} ${completionStatus === 'error' ? 'script-error' : ''}`}
+                        style={{
+                          padding: '0.5rem',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          background: selectedScripts.has(script.path) ? 'rgba(88, 166, 255, 0.1)' : 'transparent',
+                          marginBottom: '0.25rem',
+                          border: isRunning ? '1px solid rgba(88, 166, 255, 0.5)' : '1px solid transparent',
+                          animationDelay: `${index * 0.05}s`
+                        }}
+                      >
+                        {isRunning && <span className="running-dot" />}
+                        <input
+                          type="checkbox"
+                          checked={selectedScripts.has(script.path)}
+                          onChange={() => toggleScriptSelection(script.path)}
+                          style={{ accentColor: 'var(--accent-color)' }}
+                          className="checkbox-animate"
+                        />
+                        <span style={{
+                          fontSize: '0.85rem',
+                          flex: 1,
+                          color: completionStatus === 'success' ? 'var(--success-color)' :
+                            completionStatus === 'error' ? 'var(--error-color)' : 'inherit'
+                        }}>
+                          {script.name}
+                          {completionStatus === 'success' && ' ✓'}
+                          {completionStatus === 'error' && ' ✗'}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex gap-2">
+                  {/* Run Single */}
+                  <button
+                    className="btn-secondary"
+                    onClick={() => {
+                      if (selectedScripts.size === 1) {
+                        setSelectedScriptPath(Array.from(selectedScripts)[0]);
+                        runGeneratedScript();
+                      }
+                    }}
+                    disabled={selectedScripts.size !== 1 || isExecuting || isParallelRunning}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+                  >
+                    <Play size={14} /> Run Single
+                  </button>
+
+                  {/* Run Parallel */}
+                  <button
+                    onClick={runSelectedScriptsParallel}
+                    disabled={selectedScripts.size < 1 || isExecuting || isParallelRunning || status === 'running'}
+                    className={isParallelRunning ? 'btn-running' : ''}
+                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', background: selectedScripts.size > 0 && !isParallelRunning ? 'var(--accent-color)' : undefined }}
+                  >
+                    {isParallelRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                    Run {selectedScripts.size > 1 ? `${selectedScripts.size} Parallel` : 'Selected'}
+                  </button>
+                </div>
+
+                {/* Parallel Progress */}
+                {(isParallelRunning || parallelProgress.completed > 0) && parallelProgress.total > 0 && (
+                  <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: 'rgba(0,0,0,0.2)', borderRadius: '4px' }}>
+                    <div className="flex justify-between items-center mb-2">
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {isParallelRunning && <span className="running-dot" />}
+                        Parallel Progress
+                      </span>
+                      <span className="count-animate" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {parallelProgress.completed}/{parallelProgress.total}
+                      </span>
+                    </div>
+                    <div style={{ height: '8px', background: 'var(--border-color)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div
+                        className={isParallelRunning ? 'progress-bar-active' : ''}
+                        style={{
+                          height: '100%',
+                          width: `${(parallelProgress.completed / parallelProgress.total) * 100}%`,
+                          background: parallelProgress.failed > 0
+                            ? 'linear-gradient(90deg, var(--success-color), var(--error-color))'
+                            : 'linear-gradient(90deg, var(--success-color), #58d68d)',
+                          transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                          borderRadius: '4px'
+                        }}
+                      />
+                    </div>
+                    <div className="flex justify-between mt-2" style={{ fontSize: '0.75rem' }}>
+                      <span className="count-animate" style={{ color: 'var(--success-color)' }}>✓ {parallelProgress.successful} success</span>
+                      <span className="count-animate" style={{ color: 'var(--error-color)' }}>✗ {parallelProgress.failed} failed</span>
+                      <span className="count-animate" style={{ color: 'var(--accent-color)' }}>{parallelProgress.totalRows} rows</span>
+                    </div>
+                  </div>
+                )}
               </>
             ) : (
               <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem' }}>

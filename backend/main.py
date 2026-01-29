@@ -22,10 +22,10 @@ from deep_scraper.core.state import AgentState
 
 app = FastAPI(title="Deep Scraper API")
 
-# Enable CORS for React frontend (Vite defaults to 5173)
+# Enable CORS for React frontend (Vite defaults to 5173, may use 5174 if 5173 busy)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -43,8 +43,16 @@ class ExecuteRequest(BaseModel):
     start_date: str = "01/01/1980"
     end_date: str = datetime.now().strftime("%m/%d/%Y")
 
+class ParallelExecuteRequest(BaseModel):
+    script_paths: list[str]
+    search_query: str
+    start_date: str = "01/01/1980"
+    end_date: str = datetime.now().strftime("%m/%d/%Y")
+    max_concurrent: int = 5  # Concurrency limit
+
 # In-memory store for agent status
 runs = {}
+parallel_runs = {}  # Store for parallel execution status
 
 @app.get("/health")
 async def health():
@@ -264,6 +272,204 @@ async def execute_script(request: ExecuteRequest):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+# ============================================================================
+# PARALLEL SCRIPT EXECUTION
+# ============================================================================
+
+@app.post("/api/execute-parallel")
+async def start_parallel_execution(request: ParallelExecuteRequest):
+    """
+    Start parallel execution of multiple scripts.
+    Returns a run_id to connect via WebSocket for progress updates.
+    """
+    run_id = str(uuid.uuid4())
+    parallel_runs[run_id] = {
+        "status": "starting",
+        "scripts": request.script_paths,
+        "query": request.search_query,
+        "start_date": request.start_date,
+        "end_date": request.end_date,
+        "max_concurrent": request.max_concurrent,
+        "results": {},
+        "startTime": datetime.now().isoformat()
+    }
+    return {"run_id": run_id, "total_scripts": len(request.script_paths)}
+
+
+@app.websocket("/ws/parallel/{run_id}")
+async def parallel_execution_ws(websocket: WebSocket, run_id: str):
+    """
+    WebSocket for parallel script execution with real-time progress.
+    """
+    await websocket.accept()
+    
+    if run_id not in parallel_runs:
+        await websocket.send_json({"error": "Run not found"})
+        await websocket.close()
+        return
+
+    run_data = parallel_runs[run_id]
+    scripts = run_data["scripts"]
+    query = run_data["query"]
+    start_date = run_data["start_date"]
+    end_date = run_data["end_date"]
+    max_concurrent = run_data["max_concurrent"]
+    
+    # Semaphore to limit concurrent executions (0 = no limit = run all at once)
+    effective_limit = max_concurrent if max_concurrent > 0 else len(scripts)
+    semaphore = asyncio.Semaphore(effective_limit)
+    
+    async def execute_single_script(script_path: str) -> dict:
+        """Execute a single script with semaphore control."""
+        async with semaphore:
+            script_name = os.path.basename(script_path)
+            
+            # Notify: starting
+            try:
+                await websocket.send_json({
+                    "type": "script_start",
+                    "script": script_name,
+                    "path": script_path
+                })
+            except:
+                pass
+            
+            if not os.path.exists(script_path):
+                return {
+                    "script": script_name,
+                    "path": script_path,
+                    "success": False,
+                    "error": "Script file not found",
+                    "row_count": 0
+                }
+            
+            try:
+                # Use asyncio subprocess for non-blocking execution
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, script_path, query, start_date, end_date,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    cwd=os.path.dirname(__file__)
+                )
+                
+                try:
+                    stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                        proc.communicate(),
+                        timeout=180
+                    )
+                except asyncio.TimeoutError:
+                    proc.kill()
+                    return {
+                        "script": script_name,
+                        "path": script_path,
+                        "success": False,
+                        "error": "Script execution timed out (180s)",
+                        "row_count": 0
+                    }
+                
+                stdout = stdout_bytes.decode('utf-8', errors='replace')
+                stderr = stderr_bytes.decode('utf-8', errors='replace')
+                
+                # Success detection
+                stdout_upper = stdout.upper()
+                is_success = "SUCCESS" in stdout_upper or "[OK]" in stdout_upper
+                
+                # Extract row count
+                import re
+                row_count = 0
+                row_match = re.search(r'(?:Extracted|Found|Saved|Saving)\s+(\d+)\s+(?:rows|records|items)', stdout, re.IGNORECASE)
+                if row_match:
+                    row_count = int(row_match.group(1))
+                
+                result = {
+                    "script": script_name,
+                    "path": script_path,
+                    "success": is_success or row_count > 0,
+                    "row_count": row_count,
+                    "stdout": stdout[-500:] if len(stdout) > 500 else stdout,  # Last 500 chars
+                    "stderr": stderr[-200:] if len(stderr) > 200 else stderr
+                }
+                
+                # Notify: completed
+                try:
+                    await websocket.send_json({
+                        "type": "script_complete",
+                        **result
+                    })
+                except:
+                    pass
+                
+                return result
+                
+            except Exception as e:
+                return {
+                    "script": script_name,
+                    "path": script_path,
+                    "success": False,
+                    "error": str(e),
+                    "row_count": 0
+                }
+    
+    try:
+        # Send initial status
+        await websocket.send_json({
+            "type": "parallel_start",
+            "total_scripts": len(scripts),
+            "max_concurrent": max_concurrent
+        })
+        
+        # Execute all scripts in parallel with gather
+        results = await asyncio.gather(
+            *[execute_single_script(script) for script in scripts],
+            return_exceptions=True
+        )
+        
+        # Process results
+        final_results = []
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                final_results.append({
+                    "script": os.path.basename(scripts[i]),
+                    "path": scripts[i],
+                    "success": False,
+                    "error": str(result),
+                    "row_count": 0
+                })
+            else:
+                final_results.append(result)
+        
+        # Calculate totals
+        total_success = sum(1 for r in final_results if r.get("success"))
+        total_rows = sum(r.get("row_count", 0) for r in final_results)
+        
+        # Store results
+        run_data["results"] = final_results
+        run_data["status"] = "completed"
+        
+        # Send final summary
+        await websocket.send_json({
+            "type": "parallel_complete",
+            "total_scripts": len(scripts),
+            "successful": total_success,
+            "failed": len(scripts) - total_success,
+            "total_rows": total_rows,
+            "results": final_results
+        })
+        
+    except WebSocketDisconnect:
+        print(f"WebSocket disconnected for parallel run {run_id}")
+    except Exception as e:
+        try:
+            await websocket.send_json({"type": "error", "error": str(e)})
+        except:
+            pass
+    finally:
+        try:
+            await websocket.close()
+        except:
+            pass
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8006)
+
