@@ -21,3 +21,7 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2024-07-26 - Browser-side HTML Cleaning
+**Learning:** Cleaning HTML on the Python backend after fetching the full DOM over MCP is inefficient. Browsers are faster at DOM traversal and `getComputedStyle` is more accurate for detecting hidden elements than regex.
+**Action:** Implement `get_cleaned_html` using `evaluate` to clean DOM in-browser before serialization, reducing payload size by ~40-60% (removing scripts/styles).

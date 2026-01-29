@@ -149,6 +149,64 @@ class MCPBrowserAdapter:
             print(f"⚠️ Failed to get content: {e}")
             return ""
     
+    async def get_cleaned_html(self) -> str:
+        """
+        Get HTML cleaned of scripts, styles, and hidden elements.
+
+        Bolt ⚡ Optimization:
+        Executes cleaning in the browser to reduce payload size.
+        Removes: script, style, link, svg, iframe, object, embed, template, noscript, comments
+        and elements hidden via CSS (display:none, visibility:hidden).
+        """
+        if not self.mcp:
+            return ""
+
+        script = """
+(function() {
+    function isHidden(el) {
+        if (el.nodeType !== 1) return false;
+        const style = window.getComputedStyle(el);
+        return style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0';
+    }
+
+    function clean(node) {
+        if (node.nodeType === 3) { // Text node
+            return document.createTextNode(node.textContent);
+        }
+        if (node.nodeType !== 1) return null; // Skip comments, etc.
+
+        const tag = node.tagName.toLowerCase();
+        if (['script', 'style', 'link', 'svg', 'iframe', 'object', 'embed', 'template', 'noscript'].includes(tag)) {
+            return null;
+        }
+
+        if (isHidden(node)) return null;
+
+        const clone = node.cloneNode(false); // Shallow clone
+
+        // Remove style attribute to save space and avoid confusion
+        clone.removeAttribute('style');
+
+        // Recurse
+        for (let child of node.childNodes) {
+            const cleanedChild = clean(child);
+            if (cleanedChild) {
+                clone.appendChild(cleanedChild);
+            }
+        }
+        return clone;
+    }
+
+    const cleanedBody = clean(document.body);
+    return cleanedBody ? cleanedBody.outerHTML : '';
+})();
+"""
+        try:
+            return await self.evaluate(script) or ""
+        except Exception as e:
+            print(f"⚠️ Failed to get cleaned HTML: {e}")
+            return ""
+
     async def get_snapshot(self) -> Dict[str, Any]:
         """
         Get page HTML and text for LLM analysis.
