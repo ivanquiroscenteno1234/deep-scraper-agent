@@ -149,6 +149,66 @@ class MCPBrowserAdapter:
             print(f"⚠️ Failed to get content: {e}")
             return ""
     
+    async def get_cleaned_html(self, max_length: int = 100000) -> str:
+        """
+        Get cleaned HTML directly from the browser.
+
+        Bolt ⚡ Optimization:
+        - Executes cleaning logic in the browser (JS) instead of Python
+        - Reduces network payload by removing scripts, styles, SVGs, etc. BEFORE transfer
+        - Saves Python CPU cycles used for regex processing
+        """
+        if not self.mcp:
+            return ""
+
+        script = """
+        (function() {
+            try {
+                // Clone to avoid modifying the actual page
+                const clone = document.documentElement.cloneNode(true);
+
+                // Remove heavy/useless tags
+                const tagsToRemove = ['script', 'style', 'link', 'svg', 'noscript', 'iframe', 'meta'];
+                tagsToRemove.forEach(tag => {
+                    const elements = clone.querySelectorAll(tag);
+                    elements.forEach(el => el.remove());
+                });
+
+                // Remove comments
+                const walker = document.createTreeWalker(clone, NodeFilter.SHOW_COMMENT);
+                const comments = [];
+                while(walker.nextNode()) comments.push(walker.currentNode);
+                comments.forEach(c => c.remove());
+
+                // Remove explicitly hidden elements (inline style)
+                // Note: We can only check inline styles on a clone, not computed styles
+                const hidden = clone.querySelectorAll('[style*="display: none"], [style*="visibility: hidden"], [hidden]');
+                hidden.forEach(el => el.remove());
+
+                // Return cleaned HTML
+                let html = clone.outerHTML;
+
+                // Basic whitespace cleanup
+                return html.replace(/\\s+/g, ' ').trim();
+            } catch (e) {
+                return "Error cleaning HTML: " + e.message;
+            }
+        })()
+        """
+
+        try:
+            cleaned_html = await self.evaluate(script)
+            # Ensure we get a string back
+            if not isinstance(cleaned_html, str):
+                cleaned_html = str(cleaned_html) if cleaned_html is not None else ""
+
+            if len(cleaned_html) > max_length:
+                return cleaned_html[:max_length] + "\\n... [TRUNCATED]"
+            return cleaned_html
+        except Exception as e:
+            print(f"⚠️ Failed to get cleaned HTML: {e}")
+            return ""
+
     async def get_snapshot(self) -> Dict[str, Any]:
         """
         Get page HTML and text for LLM analysis.
