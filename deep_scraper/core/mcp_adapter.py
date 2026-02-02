@@ -183,6 +183,70 @@ class MCPBrowserAdapter:
             print(f"⚠️ Failed to get snapshot: {e}")
             return {}
     
+    async def get_cleaned_html(self, max_length: int = 100000) -> str:
+        """
+        Get cleaned HTML from the browser for LLM analysis.
+
+        Bolt ⚡ Optimization:
+        - Executes cleaning logic in the browser (JS) instead of Python
+        - Removes scripts, styles, comments, hidden elements
+        - Reduces network payload and CPU usage
+
+        Args:
+            max_length: Maximum length of the returned string
+
+        Returns:
+            Cleaned HTML string
+        """
+        if not self.mcp:
+            return ""
+
+        script = """
+        (function() {
+            var clone = document.documentElement.cloneNode(true);
+
+            // Remove heavy/useless tags
+            var toRemove = clone.querySelectorAll('script, style, link, svg, noscript, iframe, meta');
+            for (var i = 0; i < toRemove.length; i++) {
+                if (toRemove[i].parentNode) toRemove[i].parentNode.removeChild(toRemove[i]);
+            }
+
+            // Remove hidden elements (checking inline styles on clone)
+            // Note: We can't easily check computed styles on a detached clone,
+            // so we rely on explicit style attributes which is common for 'display: none'.
+            var all = clone.getElementsByTagName('*');
+            for (var i = 0; i < all.length; i++) {
+                var style = all[i].getAttribute('style');
+                if (style) {
+                    style = style.toLowerCase();
+                    if (style.indexOf('display: none') !== -1 ||
+                        style.indexOf('display:none') !== -1 ||
+                        style.indexOf('visibility: hidden') !== -1 ||
+                        style.indexOf('visibility:hidden') !== -1) {
+                         if (all[i].parentNode) all[i].parentNode.removeChild(all[i]);
+                    }
+                }
+            }
+
+            var html = clone.outerHTML;
+
+            // Remove comments (Regex is fast enough for this on the string)
+            return html.replace(/<!--[\\s\\S]*?-->/g, "");
+        })();
+        """
+
+        try:
+            result = await self.evaluate(script)
+            clean_html = str(result) if result else ""
+
+            if len(clean_html) > max_length:
+                return clean_html[:max_length] + "\n... [TRUNCATED]"
+            return clean_html
+
+        except Exception as e:
+            print(f"⚠️ Failed to get cleaned HTML: {e}")
+            return ""
+
     async def click_element(self, selector: str, description: str = "") -> bool:
         """
         Click an element using a CSS selector.
