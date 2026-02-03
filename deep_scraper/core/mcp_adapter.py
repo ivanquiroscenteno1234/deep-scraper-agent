@@ -182,6 +182,55 @@ class MCPBrowserAdapter:
         except Exception as e:
             print(f"⚠️ Failed to get snapshot: {e}")
             return {}
+
+    async def get_cleaned_html(self, max_length: int = 100000) -> str:
+        """
+        Get cleaned HTML directly from the browser (minimizes network transfer).
+
+        Executes JS to remove scripts, styles, comments, and hidden elements
+        BEFORE transferring the string to Python.
+        """
+        if not self.mcp:
+            return ""
+
+        # JS payload to clean DOM
+        script = f"""
+        (function() {{
+            const maxLength = {max_length};
+            const clone = document.documentElement.cloneNode(true);
+
+            // Remove scripts, styles, etc.
+            const toRemove = clone.querySelectorAll('script, style, link, svg, noscript, iframe, meta');
+            toRemove.forEach(el => el.remove());
+
+            // Remove comments
+            const walker = document.createTreeWalker(clone, NodeFilter.SHOW_COMMENT);
+            const comments = [];
+            while(walker.nextNode()) comments.push(walker.currentNode);
+            comments.forEach(c => c.remove());
+
+            // Remove hidden elements (inline styles)
+            const hidden = clone.querySelectorAll('[style*="display: none"], [style*="visibility: hidden"], [hidden]');
+            hidden.forEach(el => el.remove());
+
+            let html = clone.outerHTML;
+
+            // Collapse whitespace
+            html = html.replace(/\\s+/g, ' ');
+
+            if (html.length > maxLength) {{
+                html = html.substring(0, maxLength) + "\\n... [TRUNCATED]";
+            }}
+            return html;
+        }})()
+        """
+
+        try:
+            result = await self.evaluate(script)
+            return str(result) if result else ""
+        except Exception as e:
+            print(f"⚠️ Failed to get cleaned HTML: {e}")
+            return ""
     
     async def click_element(self, selector: str, description: str = "") -> bool:
         """
