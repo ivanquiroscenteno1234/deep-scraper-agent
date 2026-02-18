@@ -1,6 +1,6 @@
-# Deep Scraper Agent Backend (Force reload at 21:50 - Navigation Portal Fix)
 import os
 import sys
+import re
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -9,8 +9,6 @@ import json
 import uuid
 from datetime import datetime
 from dotenv import load_dotenv
-import csv
-import io
 
 # Load environment variables from .env
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
@@ -19,13 +17,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from deep_scraper.graph.mcp_engine import mcp_app
 from deep_scraper.core.state import AgentState
+from backend.services.script_runner import run_script, ScriptResult
 
 app = FastAPI(title="Deep Scraper API")
 
-# Enable CORS for React frontend (Vite defaults to 5173)
+# Enable CORS for React frontend (Vite may bind to 5173, 5174, etc.)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origin_regex=r"http://localhost:\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -179,90 +178,34 @@ async def execute_script(request: ExecuteRequest):
     """
     Run a specific generated script and return the extracted data.
     """
-    if not os.path.exists(request.script_path):
-        return {"error": "Script file not found"}
+    backend_dir = os.path.dirname(__file__)
+    output_data_dir = os.path.join(backend_dir, "output", "data")
 
-    print(f"DEBUG: Executing script {request.script_path}")
-    print(f"DEBUG: Query='{request.search_query}', Start='{request.start_date}', End='{request.end_date}'")
-    
-    import subprocess
-    import re
-    
-    try:
-        # Run the script: python script.py "QUERY" "START" "END"
-        result = subprocess.run(
-            [sys.executable, request.script_path, request.search_query, request.start_date, request.end_date],
-            capture_output=True,
-            text=True,
-            timeout=180,
-            cwd=os.path.dirname(__file__)  # Run from backend dir so relative paths work
-        )
-        
-        # 1. Flexible Success Detection
-        stdout_upper = result.stdout.upper()
-        is_success = "SUCCESS" in stdout_upper or "[SUCCESS]" in stdout_upper or "[OK]" in stdout_upper
-        
-        # 2. Extract Row Count
-        row_count = 0
-        row_match = re.search(r'(?:Extracted|Found|Saved|Saving)\s+(\d+)\s+(?:rows|records|items)', result.stdout, re.IGNORECASE)
-        if row_match:
-            row_count = int(row_match.group(1))
-            
-        # 3. CSV File Resolution
-        csv_file = None
-        # Try finding path in stdout - support multiple formats
-        csv_path_match = re.search(r'(?:saved to|CSV saved:|to|Saved)\s+([^\s]+\.csv)', result.stdout, re.IGNORECASE)
-        if csv_path_match:
-            csv_file = csv_path_match.group(1).strip()
-            
-        # Search for the CSV in standardized output/data/ folder
-        backend_dir = os.path.dirname(__file__)
-        output_data_dir = os.path.join(backend_dir, "output", "data")
-        potential_paths = []
-        
-        if csv_file:
-            potential_paths.append(csv_file)  # Absolute path from stdout
-            potential_paths.append(os.path.join(output_data_dir, os.path.basename(csv_file)))
-        
-        # If no csv_file found in stdout, find most recent CSV in output/data/
-        if not csv_file and os.path.isdir(output_data_dir):
-            csv_files = [f for f in os.listdir(output_data_dir) if f.endswith('.csv')]
-            if csv_files:
-                csv_files.sort(key=lambda x: os.path.getmtime(os.path.join(output_data_dir, x)), reverse=True)
-                potential_paths.append(os.path.join(output_data_dir, csv_files[0]))
-        
-        # Final Verification
-        final_data = []
-        found_path = None
-        for path in potential_paths:
-            if os.path.exists(path):
-                found_path = path
-                try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        reader = csv.DictReader(f)
-                        final_data = list(reader)
-                        break
-                except Exception as e:
-                    print(f"DEBUG: Failed to read CSV at {path}: {e}")
-        
-        if is_success or final_data:
-            return {
-                "success": True,
-                "row_count": len(final_data) if final_data else row_count,
-                "data": final_data,
-                "stdout": result.stdout,
-                "stderr": result.stderr
-            }
-        
+    result: ScriptResult = run_script(
+        script_path=request.script_path,
+        search_query=request.search_query,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        cwd=backend_dir,
+        output_dir=output_data_dir,
+    )
+
+    if result.success:
         return {
-            "success": False,
-            "error": "Script execution failed or produced no valid data output",
+            "success": True,
+            "row_count": result.row_count,
+            "data": result.data,
             "stdout": result.stdout,
-            "stderr": result.stderr
+            "stderr": result.stderr,
         }
-        
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+
+    return {
+        "success": False,
+        "error": result.error or "Script execution failed or produced no valid data output",
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
 
 if __name__ == "__main__":
     import uvicorn

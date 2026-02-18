@@ -8,7 +8,7 @@ Contains:
 import asyncio
 import json
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from langchain_core.messages import SystemMessage, HumanMessage
 
@@ -23,64 +23,7 @@ from deep_scraper.graph.nodes.config import (
     COLUMN_HTML_LIMIT,
 )
 from deep_scraper.utils.constants import AUMENTUM_STACKED_COLUMNS
-
-
-def filter_hidden_columns_from_html(html: str) -> Tuple[str, List[int]]:
-    """
-    Filter out hidden table columns from HTML and return visible column indices.
-    
-    Detects columns hidden via:
-    - CSS class="hidden", class="hide", or class containing "hidden"
-    - Inline style display:none or visibility:hidden
-    
-    Returns:
-        Tuple of (filtered_html, visible_column_indices)
-    """
-    # Find all table header cells and track which are visible
-    visible_indices = []
-    
-    # Pattern to find <th> tags with their attributes
-    th_pattern = re.compile(r'<th([^>]*)>(.*?)</th>', re.IGNORECASE | re.DOTALL)
-    
-    # Patterns indicating a hidden column
-    hidden_patterns = [
-        r'class\s*=\s*["\'][^"\']*\b(hidden|hide)\b[^"\']*["\']',  # class="hidden", class="hide col"
-        r'style\s*=\s*["\'][^"\']*display\s*:\s*none[^"\']*["\']',  # style="display:none"
-        r'style\s*=\s*["\'][^"\']*visibility\s*:\s*hidden[^"\']*["\']',  # style="visibility:hidden"
-    ]
-    
-    def is_hidden(attrs: str) -> bool:
-        for pattern in hidden_patterns:
-            if re.search(pattern, attrs, re.IGNORECASE):
-                return True
-        return False
-    
-    # Process table headers to find visible column indices
-    all_ths = th_pattern.findall(html)
-    for i, (attrs, content) in enumerate(all_ths):
-        if not is_hidden(attrs):
-            visible_indices.append(i)
-    
-    # Also filter <td> elements with hidden class to clean up the sample data shown to LLM
-    # This helps LLM understand which columns actually contain visible data
-    filtered_html = html
-    
-    # Remove entire hidden <th> and <td> elements from sample HTML for cleaner LLM analysis
-    # Match th/td with hidden class and remove them
-    hidden_cell_pattern = re.compile(
-        r'<(th|td)\s+[^>]*class\s*=\s*["\'][^"\']*\b(hidden|hide)\b[^"\']*["\'][^>]*>.*?</\1>',
-        re.IGNORECASE | re.DOTALL
-    )
-    filtered_html = hidden_cell_pattern.sub('', filtered_html)
-    
-    # Also remove cells with inline display:none
-    hidden_style_pattern = re.compile(
-        r'<(th|td)\s+[^>]*style\s*=\s*["\'][^"\']*display\s*:\s*none[^"\']*["\'][^>]*>.*?</\1>',
-        re.IGNORECASE | re.DOTALL
-    )
-    filtered_html = hidden_style_pattern.sub('', filtered_html)
-    
-    return filtered_html, visible_indices
+from deep_scraper.utils.html import filter_hidden_columns_from_html  # moved from here to utils/html.py
 
 
 async def node_capture_columns_mcp(state: AgentState) -> Dict[str, Any]:

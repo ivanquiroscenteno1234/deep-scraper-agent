@@ -1,38 +1,38 @@
 """
-Shared configuration and utilities for all graph nodes.
+Shared configuration and re-exports for all graph nodes.
 
-Contains:
-- LLM client initialization
-- Browser adapter helpers
-- Common imports for all nodes
+Each concern lives in its own module:
+  LLM clients      → deep_scraper.core.llm
+  Browser adapter  → deep_scraper.core.browser  (or mcp_adapter)
+  Pydantic models  → deep_scraper.core.schemas
+  Text utils       → deep_scraper.utils.text
+  HTML utils       → deep_scraper.utils.html
+  Logging          → deep_scraper.utils.logging
+  Constants        → deep_scraper.utils.constants
+  Script template  → deep_scraper.utils.script_template
 """
 
 import asyncio
-import os
-from typing import Any, Dict
 
-from langchain_core.messages import SystemMessage, HumanMessage
-from langchain_google_genai import ChatGoogleGenerativeAI
-from pydantic import BaseModel, Field
-from dotenv import load_dotenv
+from deep_scraper.core.state import AgentState  # noqa: F401
+from deep_scraper.core.llm import llm, llm_high_thinking  # noqa: F401
+from deep_scraper.core.mcp_adapter import get_mcp_adapter, MCPBrowserAdapter, reset_mcp_adapter  # noqa: F401
 
-from deep_scraper.core.state import AgentState
-from deep_scraper.core.mcp_adapter import get_mcp_adapter, MCPBrowserAdapter, reset_mcp_adapter
-
-# Import helpers
-from deep_scraper.utils.helpers import (
-    extract_llm_text,
-    extract_code_from_markdown,
-    clean_html_for_llm,
-    get_site_name_from_url,
-    StructuredLogger,
+from deep_scraper.core.schemas import (  # noqa: F401
     NavigationDecision,
     PopupAnalysis,
     PostClickAnalysis,
     PostPopupAnalysis,
     ColumnAnalysis,
 )
-from deep_scraper.utils.constants import (
+from deep_scraper.utils.text import (  # noqa: F401
+    extract_llm_text,
+    extract_code_from_markdown,
+    get_site_name_from_url,
+)
+from deep_scraper.utils.html import clean_html_for_llm  # noqa: F401
+from deep_scraper.utils.logging import StructuredLogger  # noqa: F401
+from deep_scraper.utils.constants import (  # noqa: F401
     RESULTS_GRID_SELECTORS,
     KNOWN_GRID_COLUMNS,
     DEFAULT_NAVIGATION_TIMEOUT,
@@ -44,47 +44,13 @@ from deep_scraper.utils.constants import (
     POPUP_HTML_LIMIT,
     COLUMN_HTML_LIMIT,
 )
-from deep_scraper.utils.script_template import build_script_prompt
+from deep_scraper.utils.script_template import build_script_prompt  # noqa: F401
 
 
-# ============================================================================
-# LLM SETUP
-# ============================================================================
+# ---------------------------------------------------------------------------
+# Browser adapter singleton (managed here for backward-compat)
+# ---------------------------------------------------------------------------
 
-load_dotenv(override=True)
-
-gemini_model = os.getenv("GEMINI_MODEL")
-google_api_key = os.getenv("GOOGLE_API_KEY")
-
-if google_api_key:
-    google_api_key = google_api_key.strip()
-else:
-    raise ValueError("GOOGLE_API_KEY environment variable is required")
-
-print(f"LLM Init: Model={gemini_model}, Key={google_api_key[:4]}...{google_api_key[-4:] if google_api_key else ''}", flush=True)
-
-# LLM with low thinking for page analysis
-llm = ChatGoogleGenerativeAI(
-    model=gemini_model, 
-    temperature=0, 
-    google_api_key=google_api_key,
-    thinking_level="high"
-)
-
-# LLM with high thinking for script generation
-llm_high_thinking = ChatGoogleGenerativeAI(
-    model=gemini_model, 
-    temperature=0, 
-    google_api_key=google_api_key,
-    thinking_level="high"
-)
-
-
-# ============================================================================
-# BROWSER ADAPTER HELPERS
-# ============================================================================
-
-# Global MCP adapter
 mcp_browser: MCPBrowserAdapter = None
 
 
@@ -98,14 +64,15 @@ async def get_mcp_browser() -> MCPBrowserAdapter:
             if not await asyncio.wait_for(mcp_browser.launch(), timeout=30.0):
                 raise Exception("Failed to connect to MCP server (launch returned False)")
         except asyncio.TimeoutError:
-            raise Exception("Timeout (30s) while connecting to MCP server - please ensure the MCP server is running")
+            raise Exception(
+                "Timeout (30s) while connecting to MCP server — please ensure the MCP server is running"
+            )
         except Exception as e:
             raise Exception(f"Failed to connect to MCP server: {str(e)}")
-            
     return mcp_browser
 
 
-async def reset_mcp_browser():
+async def reset_mcp_browser() -> None:
     """Reset the global MCP browser adapter and close browser."""
     global mcp_browser
     if mcp_browser:
@@ -115,3 +82,4 @@ async def reset_mcp_browser():
             print(f"⚠️ Browser reset warning: {e}")
     mcp_browser = None
     reset_mcp_adapter()
+

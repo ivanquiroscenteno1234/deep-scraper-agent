@@ -4,110 +4,134 @@ This document describes the LangGraph-based agent workflow for autonomous web sc
 
 ## Architecture Overview
 
-The agent uses a **dual-layer architecture**:
+The agent uses a **single-layer MCP architecture**:
 
 | Layer | Tool | Purpose |
 |-------|------|---------|
-| 🔥 **Vision Layer** | Firecrawl SDK | Convert pages to clean Markdown for LLM analysis |
-| 🎭 **Action Layer** | Playwright | Click, fill, navigate, and interact with pages |
+| 🎭 **Browser Layer** | Playwright MCP | Navigate, click, fill, snapshot — all actions |
+| 🧠 **Intelligence Layer** | Gemini LLM | Classify pages, generate scripts, fix errors |
 
-> **Note**: Firecrawl is used during agent execution for smarter analysis. Generated scripts use only Playwright (no external dependencies).
+> Both the agent session and the generated scripts use Playwright exclusively. The LLM receives cleaned HTML snapshots from MCP for all analysis decisions.
 
 ## Workflow Diagram
 
-![Agent Workflow Diagram](workflow_diagram.png)
-
-### Mermaid Source (for editing)
-
 ```mermaid
 flowchart TD
-    START([🚀 START]) --> navigate
+    START([🚀 Start]) --> NAV
 
-    subgraph NAVIGATION["📍 Phase 1: Navigation"]
-        navigate["node_navigate<br/>Playwright: goto()"]
-        analyze["node_analyze<br/>🔥 Firecrawl → Markdown<br/>LLM: Classify Page"]
-        click_link["node_click_link<br/>Playwright: click()"]
+    subgraph P1["📍 Phase 1: Navigation"]
+        direction TB
+        NAV["node_navigate"] --> ANA["node_analyze"]
+        CLK["node_click_link"]
     end
 
-    subgraph SEARCH["🔍 Phase 2: Search"]
-        perform_search["node_perform_search<br/>Fill Form & Submit"]
+    subgraph P2["🔍 Phase 2: Search"]
+        direction TB
+        SRCH["node_perform_search"]
     end
 
-    subgraph CAPTURE["📊 Phase 3: Data Capture"]
-        capture_columns["node_capture_columns<br/>Identify Grid & Columns"]
+    subgraph P3["📊 Phase 3: Data Capture"]
+        direction TB
+        CAP["node_capture_columns"]
     end
 
-    subgraph SCRIPT["⚙️ Phase 4: Script Generation"]
-        generate_script["node_generate_script<br/>Generate Playwright Script"]
-        test_script["node_test_script<br/>Execute & Validate"]
-        fix_script["node_fix_script<br/>AI-Powered Fix"]
+    subgraph P4["⚙️ Phase 4: Script + Test"]
+        direction TB
+        GEN["node_generate_script"] --> TST["node_test_script"]
+        FIX["node_fix_script"]
     end
 
-    subgraph ERROR["🚨 Error Handling"]
-        escalate["node_escalate<br/>Human Intervention"]
+    subgraph P5["🚨 Error Handling"]
+        direction TB
+        ESC["node_escalate"]
     end
 
-    navigate --> analyze
-    
-    analyze -->|"Search Page"| perform_search
-    analyze -->|"Disclaimer"| click_link
-    analyze -->|"Login Required"| END_FAIL
-    analyze -->|"Healing Exceeded"| escalate
-    
-    click_link --> navigate
-    
-    perform_search -->|"Success"| capture_columns
-    perform_search -->|"Failed"| escalate
-    
-    capture_columns --> generate_script
-    generate_script --> test_script
-    
-    test_script -->|"✅ Pass"| END_SUCCESS
-    test_script -->|"❌ Fail (< 3)"| fix_script
-    test_script -->|"❌ Max Retries"| END_FAIL
-    
-    fix_script --> test_script
-    escalate --> END_FAIL
+    ANA -->|Search page| SRCH
+    ANA -->|Results grid| CAP
+    ANA -->|Need click / disclaimer| CLK
+    ANA -->|Login required or too many attempts| END_FAIL
+    ANA -->|Failed or healing budget hit| ESC
 
-    END_SUCCESS([✅ SUCCESS<br/>Script Ready])
-    END_FAIL([❌ END])
+    CLK -->|Still navigating| ANA
+    CLK -->|Search page found| SRCH
+    CLK -->|Selectors exhausted| ESC
+
+    SRCH -->|Search executed| CAP
+    SRCH -->|Search failed| ANA
+    SRCH -->|Unexpected error| END_FAIL
+
+    CAP --> GEN
+
+    TST -->|Test passed| END_SUCCESS
+    TST --> FIX
+    TST -->|Attempts reached limit| ESC
+    FIX --> TST
+
+    ESC --> END_FAIL
+
+    END_SUCCESS([✅ Success])
+    END_FAIL([❌ End])
 
     style START fill:#00d4ff,color:#000
     style END_SUCCESS fill:#00ff88,color:#000
     style END_FAIL fill:#ff4444,color:#fff
-    style NAVIGATION fill:#1a1a2e,stroke:#00d4ff
-    style SEARCH fill:#1a1a2e,stroke:#7c3aed
-    style CAPTURE fill:#1a1a2e,stroke:#ffaa00
-    style SCRIPT fill:#1a1a2e,stroke:#00ff88
-    style ERROR fill:#1a1a2e,stroke:#ff4444
+    style P1 fill:#1a1a2e,stroke:#00d4ff
+    style P2 fill:#1a1a2e,stroke:#7c3aed
+    style P3 fill:#1a1a2e,stroke:#ffaa00
+    style P4 fill:#1a1a2e,stroke:#00ff88
+    style P5 fill:#1a1a2e,stroke:#ff4444
 ```
 
 ## Node Descriptions
 
-| Node | Vision Layer | Action Layer | Purpose |
-|------|--------------|--------------|---------|
-| `node_navigate` | - | Playwright `goto()` | Navigate to URL, record step |
-| `node_analyze` | 🔥 **Firecrawl** → Markdown | - | LLM classifies page type |
-| `node_click_link` | - | Playwright `click()` | Accept disclaimer, navigate |
-| `node_perform_search` | - | Playwright `fill()`, `click()` | Execute search |
-| `node_capture_columns` | Firecrawl Markdown | - | Detect grid columns |
-| `node_generate_script` | - | - | LLM generates Playwright code |
-| `node_test_script` | - | Subprocess | Run generated script |
-| `node_fix_script` | - | - | LLM fixes errors |
+| Node | File | Purpose |
+|------|------|---------|
+| `node_navigate` | `nodes/navigation.py` | `goto()` via MCP, start codegen session, increment `attempt_count` |
+| `node_analyze` | `nodes/navigation.py` | MCP snapshot → clean HTML → LLM structured output → classify page type |
+| `node_click_link` | `nodes/disclaimer.py` | Click accept/disclaimer/portal icon; post-click LLM analysis; Landmark Web modal detection |
+| `node_perform_search` | `nodes/search.py` | Fill name + dates (datepicker/JS/standard strategies), submit, handle popups |
+| `node_capture_columns` | `nodes/extraction.py` | JS visibility filter on tables, HTML → LLM → grid selector + column list |
+| `node_generate_script` | `nodes/script_gen.py` | Build prompt from recorded steps → LLM generates Playwright `.py` file |
+| `node_test_script` | `nodes/script_test.py` | `subprocess.run` the script; verify `SUCCESS` + positive row count in stdout |
+| `node_fix_script` | `nodes/script_test.py` | LLM receives script + error → rewrites and saves fixed version |
+| `node_escalate` | `nodes/script_test.py` | Sets `NEEDS_HUMAN_REVIEW`; terminal node → END |
 
-## Firecrawl Integration
+## Routing Logic (Conditional Edges)
 
-In `node_analyze`, the agent:
+### After `analyze` → `should_search_or_click()`
+| Condition | Next Node |
+|-----------|-----------|
+| `attempt_count > 5` | END |
+| `disclaimer_click_attempts >= 5` | `escalate` |
+| `status == FAILED` | `escalate` |
+| `status == LOGIN_REQUIRED` | END |
+| `healing_attempts >= 2` | `escalate` |
+| `status == RESULTS_GRID_FOUND` | `capture_columns` |
+| `status == SEARCH_PAGE_FOUND` | `perform_search` |
+| anything else | `click_link` |
 
-1. Checks for `FIRECRAWL_API_KEY` environment variable
-2. If found, calls `firecrawl.scrape(url, formats=['markdown'])`
-3. Passes clean Markdown to LLM instead of raw HTML
-4. Falls back to Playwright text extraction if API unavailable
+### After `perform_search` → `check_search_status()`
+| Condition | Next Node |
+|-----------|-----------|
+| `status == SEARCH_EXECUTED` | `capture_columns` |
+| `status == FAILED` | `analyze` (re-examine page) |
+| anything else | END |
 
-**Benefits:**
-- 🎯 Higher accuracy in page classification
-- 📉 Lower token cost (Markdown is 90% smaller than HTML)
-- 🔍 Better structure detection (tables, forms, links)
+### After `test_script` → `check_test_result()`
+| Condition | Next Node |
+|-----------|-----------|
+| `status == SCRIPT_TESTED` | END (success) |
+| `script_test_attempts >= 3` | `escalate` |
+| `status == SCRIPT_FAILED / SCRIPT_ERROR` | `fix_script` |
+| anything else | END |
+
+### Fixed edges
+- `navigate → analyze`
+- `click_link → analyze` *(unless `SEARCH_PAGE_FOUND` or `FAILED` — those are conditional)*
+- `capture_columns → generate_script`
+- `generate_script → test_script`
+- `fix_script → test_script`
+- `escalate → END`
 
 ## State Variables
 
@@ -115,15 +139,28 @@ In `node_analyze`, the agent:
 |-------|------|---------|
 | `target_url` | str | Starting URL |
 | `search_query` | str | Search term |
-| `firecrawl_markdown` | str | Cached Markdown from Firecrawl |
-| `recorded_steps` | List[Dict] | Actions for script generation |
-| `column_mapping` | Dict | Grid column → field name mapping |
-| `generated_script_path` | str | Path to generated .py file |
+| `start_date` / `end_date` | str | Date range (MM/DD/YYYY) |
+| `attempt_count` | int | Navigation attempts (circuit breaker at > 5) |
+| `disclaimer_click_attempts` | int | Click attempts (circuit breaker at ≥ 5) |
+| `clicked_selectors` | List[str] | Previously tried selectors (dedup) |
+| `healing_attempts` | int | AI self-healing budget (circuit breaker at ≥ 2) |
+| `recorded_steps` | List[Dict] | All browser actions recorded for script generation |
+| `search_selectors` | Dict | `input`, `submit`, `start_date`, `end_date`, `grid` selectors |
+| `column_mapping` | Dict | `col_0..N` → visible column name |
+| `discovered_grid_selectors` | List[str] | CSS selectors confirmed in the DOM |
+| `grid_html` | str | Filtered HTML fragment of the results grid |
+| `first_data_column_index` | int | Index of first real data column (skip row#/icons) |
+| `generated_script_path` | str | Absolute path to the saved `.py` script |
+| `generated_script_code` | str | Raw source of the generated script |
+| `script_test_attempts` | int | Test/fix iterations |
+| `script_error` | str | Last error from test run |
+| `site_type` | str | `ACCLAIMWEB` / `INFRAGISTICS` / `LANDMARK_WEB` / `UNKNOWN` |
+| `needs_human_review` | bool | Set by `node_escalate` |
 
 ## Timeouts
 
 | Location | Timeout | Purpose |
 |----------|---------|---------|
-| Browser actions | 2000ms | Page loads, clicks |
-| Generated scripts | 6000ms | wait_for_selector calls |
-| Script test | 120s | Subprocess execution limit |
+| MCP browser actions | varies (MCP default) | Page loads, clicks, snapshots |
+| Script test subprocess | `SCRIPT_TEST_TIMEOUT_SECONDS` (constants) | Hard cap on generated script execution |
+| Post-click analysis sleep | 3s | Allow page to settle after click |

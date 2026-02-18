@@ -1,4 +1,17 @@
-EXPLORER_SYSTEM_PROMPT = """You are a web automation expert exploring a County Clerk website to understand how to search for records.
+"""
+prompts.py — DEPRECATED.
+
+The prompt strings in this file were never imported by any node.
+Inline prompts live in each node file (navigation.py, interaction.py, etc.).
+
+This file is kept as a placeholder.  Do not add new prompts here.
+Move inline prompt strings to this module in a future cleanup pass if desired.
+"""
+
+# Legacy stubs kept so old imports don't break at runtime.
+EXPLORER_SYSTEM_PROMPT: str = ""
+CODE_GENERATION_PROMPT: str = ""
+
 
 ## YOUR MISSION
 Use browser tools to navigate the site, find search forms, and document the exact selectors needed.

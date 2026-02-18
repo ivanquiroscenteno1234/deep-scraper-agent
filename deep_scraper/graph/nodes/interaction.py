@@ -1,10 +1,16 @@
 """
-Interaction nodes - User interaction handling.
+interaction.py — Backward-compatibility shim.
 
-Contains:
-- node_click_link_mcp: Click accept/disclaimer buttons
-- node_perform_search_mcp: Fill and submit search forms, handle popups
+The 812-line monolith has been split into:
+  - disclaimer.py  → node_click_link_mcp  (disclaimer/accept handling)
+  - search.py      → node_perform_search_mcp (search form + popup handling)
+
+Import from those modules directly for new code.
 """
+
+from deep_scraper.graph.nodes.disclaimer import node_click_link_mcp  # noqa: F401
+from deep_scraper.graph.nodes.search import node_perform_search_mcp  # noqa: F401
+
 
 import asyncio
 import datetime

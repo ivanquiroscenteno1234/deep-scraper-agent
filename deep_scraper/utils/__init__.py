@@ -1,7 +1,6 @@
 """Utility functions, helpers, and constants."""
 
 from deep_scraper.utils.dom import simplify_dom, get_interactive_map
-from deep_scraper.utils.prompts import EXPLORER_SYSTEM_PROMPT, CODE_GENERATION_PROMPT
 from deep_scraper.utils.helpers import (
     extract_llm_text,
     extract_code_from_markdown,

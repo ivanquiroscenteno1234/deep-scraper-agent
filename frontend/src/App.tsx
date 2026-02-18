@@ -1,62 +1,69 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Terminal, Database, FileCode, Loader2, Search, Download, Table, ChevronRight, FolderOpen, RefreshCw } from 'lucide-react';
+import { Loader2, FileCode, Database } from 'lucide-react';
 
-interface LogEntry {
-  text: string;
-  type: 'info' | 'step' | 'success' | 'error';
-}
+import { fetchScripts, startRun, executeScript, openAgentSocket } from './api/client';
+import type { Script } from './api/client';
+
+import SearchForm from './components/SearchForm';
+import ScriptLibrary from './components/ScriptLibrary';
+import LogViewer from './components/LogViewer';
+import DataTable from './components/DataTable';
+import type { LogEntry } from './components/LogViewer';
+
+type AppStatus = 'idle' | 'running' | 'success' | 'error';
 
 function App() {
+  // Search params
   const [url, setUrl] = useState('https://vaclmweb1.brevardclerk.us/AcclaimWeb/search/SearchTypeName');
   const [query, setQuery] = useState('Lauren Homes');
-  const [status, setStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
   const [startDate, setStartDate] = useState('01/01/1980');
-  const [endDate, setEndDate] = useState(new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }));
+  const [endDate, setEndDate] = useState(
+    new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+  );
+
+  // Agent run state
+  const [status, setStatus] = useState<AppStatus>('idle');
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [metrics, setMetrics] = useState({ scriptPath: '', extractedCount: 0 });
-  const [extractedData, setExtractedData] = useState<any[]>([]);
-  const [isExecuting, setIsExecuting] = useState(false);
 
-  // Script Library state
-  const [availableScripts, setAvailableScripts] = useState<{ name: string, path: string, modified: string }[]>([]);
+  // Script library state
+  const [scripts, setScripts] = useState<Script[]>([]);
   const [selectedScriptPath, setSelectedScriptPath] = useState('');
   const [isLoadingScripts, setIsLoadingScripts] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
 
-  const logEndRef = useRef<HTMLDivElement>(null);
+  // Extracted data
+  const [extractedData, setExtractedData] = useState<Record<string, string>[]>([]);
+
   const wsRef = useRef<WebSocket | null>(null);
 
-  useEffect(() => {
-    if (logEndRef.current) {
-      logEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [logs]);
+  const addLog = (text: string, type: LogEntry['type'] = 'info') =>
+    setLogs((prev) => [...prev, { text, type }]);
 
-  const addLog = (text: string, type: LogEntry['type'] = 'info') => {
-    setLogs(prev => [...prev, { text, type }]);
-  };
+  // ---------------------------------------------------------------------------
+  // Script library
+  // ---------------------------------------------------------------------------
 
   const loadScripts = async () => {
     setIsLoadingScripts(true);
     try {
-      const response = await fetch('http://localhost:8006/api/scripts');
-      const data = await response.json();
-      const scripts = data.scripts || [];
-      setAvailableScripts(scripts);
-      if (scripts.length > 0 && !selectedScriptPath) {
-        setSelectedScriptPath(scripts[0].path);
+      const loaded = await fetchScripts();
+      setScripts(loaded);
+      if (loaded.length > 0 && !selectedScriptPath) {
+        setSelectedScriptPath(loaded[0].path);
       }
     } catch (err) {
       console.error('Failed to load scripts:', err);
-      setAvailableScripts([]);
     } finally {
       setIsLoadingScripts(false);
     }
   };
 
-  // Auto-load scripts on mount
-  useEffect(() => {
-    loadScripts();
-  }, []);
+  useEffect(() => { loadScripts(); }, []);
+
+  // ---------------------------------------------------------------------------
+  // Agent run
+  // ---------------------------------------------------------------------------
 
   const startScraping = async () => {
     setLogs([]);
@@ -66,19 +73,8 @@ function App() {
     addLog(`🚀 Starting agent for ${url}`, 'info');
 
     try {
-      const response = await fetch('http://localhost:8006/api/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          url,
-          search_query: query,
-          start_date: startDate,
-          end_date: endDate
-        }),
-      });
-
-      const { run_id } = await response.json();
-      const ws = new WebSocket(`ws://localhost:8006/ws/agent/${run_id}`);
+      const runId = await startRun({ url, search_query: query, start_date: startDate, end_date: endDate });
+      const ws = openAgentSocket(runId);
       wsRef.current = ws;
 
       ws.onmessage = (event) => {
@@ -101,28 +97,29 @@ function App() {
         }
 
         if (message.data?.script_path) {
-          setMetrics(prev => ({ ...prev, scriptPath: message.data.script_path }));
+          setMetrics((prev) => ({ ...prev, scriptPath: message.data.script_path }));
         }
-
         if (message.data?.extracted_count) {
-          setMetrics(prev => ({ ...prev, extractedCount: message.data.extracted_count }));
+          setMetrics((prev) => ({ ...prev, extractedCount: message.data.extracted_count }));
         }
 
         if (message.status === 'completed' || message.status === 'SCRIPT_TESTED') {
           setStatus('success');
           addLog('✨ Workflow completed successfully!', 'success');
         }
-
         if (message.status === 'NEEDS_HUMAN_REVIEW' || message.status === 'error') {
           setStatus('error');
         }
       };
-
     } catch (err) {
       addLog(`❌ Failed to connect to server: ${err}`, 'error');
       setStatus('error');
     }
   };
+
+  // ---------------------------------------------------------------------------
+  // Execute script
+  // ---------------------------------------------------------------------------
 
   const runGeneratedScript = async () => {
     const scriptToRun = selectedScriptPath || metrics.scriptPath;
@@ -133,26 +130,18 @@ function App() {
     addLog(`📝 Parameters: query="${query}", range=${startDate} - ${endDate}`, 'info');
 
     try {
-      const response = await fetch('http://localhost:8006/api/execute-script', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          script_path: scriptToRun,
-          search_query: query,
-          start_date: startDate,
-          end_date: endDate
-        }),
+      const result = await executeScript({
+        script_path: scriptToRun,
+        search_query: query,
+        start_date: startDate,
+        end_date: endDate,
       });
 
-      const result = await response.json();
-
       if (result.success) {
-        setExtractedData(result.data);
+        setExtractedData(result.data ?? []);
         addLog(`✅ Script executed successfully! Extracted ${result.row_count} rows.`, 'success');
-        // Add step logs from stdout if available
         if (result.stdout) {
-          const stepLogs = result.stdout.split('\n').filter((l: string) => l.includes('[STEP'));
-          stepLogs.forEach((l: string) => addLog(l, 'step'));
+          result.stdout.split('\n').filter((l) => l.includes('[STEP')).forEach((l) => addLog(l, 'step'));
         }
       } else {
         addLog(`❌ Execution failed: ${result.error}`, 'error');
@@ -165,15 +154,9 @@ function App() {
     }
   };
 
-  const downloadData = () => {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(extractedData, null, 2));
-    const downloadAnchorNode = document.createElement('a');
-    downloadAnchorNode.setAttribute("href", dataStr);
-    downloadAnchorNode.setAttribute("download", "extracted_data.json");
-    document.body.appendChild(downloadAnchorNode);
-    downloadAnchorNode.click();
-    downloadAnchorNode.remove();
-  };
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
     <div className="app-container">
@@ -185,134 +168,59 @@ function App() {
           </p>
         </div>
         <div className={`badge badge-${status}`}>
-          {(status === 'running' || isExecuting) && <Loader2 size={14} className="animate-spin" style={{ marginRight: '6px' }} />}
+          {(status === 'running' || isExecuting) && (
+            <Loader2 size={14} className="animate-spin" style={{ marginRight: '6px' }} />
+          )}
           {isExecuting ? 'executing script' : status}
         </div>
       </header>
 
       <div className="grid-layout">
         <div className="card">
-          <h2 className="flex items-center gap-2 mb-4">
-            <Search size={20} color="#58a6ff" /> Search Parameters
-          </h2>
+          <SearchForm
+            url={url}
+            query={query}
+            startDate={startDate}
+            endDate={endDate}
+            isRunning={status === 'running' || isExecuting}
+            onUrlChange={setUrl}
+            onQueryChange={setQuery}
+            onStartDateChange={setStartDate}
+            onEndDateChange={setEndDate}
+            onSubmit={startScraping}
+          />
 
-          <div className="input-group">
-            <label>Target URL</label>
-            <input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://..."
-            />
-          </div>
-
-          <div className="input-group">
-            <label>Party Name / Search Term</label>
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="e.g. John Doe"
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.5rem' }}>
-            <div className="input-group" style={{ marginBottom: 0 }}>
-              <label>Start Date (MM/DD/YYYY)</label>
-              <input
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                placeholder="01/01/1980"
-              />
-            </div>
-            <div className="input-group" style={{ marginBottom: 0 }}>
-              <label>End Date (MM/DD/YYYY)</label>
-              <input
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                placeholder="MM/DD/YYYY"
-              />
-            </div>
-          </div>
-
-          <button
-            onClick={startScraping}
-            disabled={status === 'running' || isExecuting}
-            style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
-          >
-            {status === 'running' ? 'Agent Working...' : <><Play size={18} /> Start Extraction</>}
-          </button>
-
-          {/* Script Library Section */}
-          <div className="mt-4" style={{ padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-            <div className="flex justify-between items-center mb-4">
-              <div className="flex items-center gap-2">
-                <FolderOpen size={16} color="#58a6ff" />
-                <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Script Library</span>
-              </div>
-              <button
-                className="btn-secondary"
-                onClick={loadScripts}
-                disabled={isLoadingScripts}
-                style={{ padding: '0.4rem 0.8rem', borderRadius: '4px' }}
-              >
-                {isLoadingScripts ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Refresh
-              </button>
-            </div>
-
-            {availableScripts.length > 0 ? (
-              <>
-                <div className="input-group" style={{ marginBottom: '0.75rem' }}>
-                  <label>Select Script</label>
-                  <select
-                    value={selectedScriptPath}
-                    onChange={(e) => setSelectedScriptPath(e.target.value)}
-                  >
-                    {availableScripts.map((script) => (
-                      <option key={script.path} value={script.path}>
-                        {script.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  className="btn-secondary"
-                  onClick={runGeneratedScript}
-                  disabled={isExecuting || status === 'running' || !selectedScriptPath}
-                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
-                >
-                  {isExecuting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} Run Selected Script
-                </button>
-              </>
-            ) : (
-              <div style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '1rem' }}>
-                No scripts available. Run the agent first to generate a script.
-              </div>
-            )}
-          </div>
+          <ScriptLibrary
+            scripts={scripts}
+            selectedPath={selectedScriptPath}
+            isLoading={isLoadingScripts}
+            isExecuting={isExecuting}
+            isAgentRunning={status === 'running'}
+            onRefresh={loadScripts}
+            onSelectScript={setSelectedScriptPath}
+            onRun={runGeneratedScript}
+          />
 
           {metrics.scriptPath && (
-            <div className="mt-4" style={{ padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-              <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center gap-2">
-                  <FileCode size={16} color="#58a6ff" />
-                  <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Generated Script</span>
-                </div>
-                <button
-                  className="btn-secondary"
-                  onClick={runGeneratedScript}
-                  disabled={isExecuting || status === 'running'}
-                  style={{ padding: '0.4rem 0.8rem', borderRadius: '4px' }}
-                >
-                  {isExecuting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} Run Now
-                </button>
+            <div
+              className="mt-4"
+              style={{ padding: '1rem', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', border: '1px solid var(--border-color)' }}
+            >
+              <div className="flex items-center gap-2" style={{ marginBottom: '0.5rem' }}>
+                <FileCode size={16} color="#58a6ff" />
+                <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Generated Script</span>
               </div>
-              <code style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', wordBreak: 'break-all', display: 'block', marginBottom: '0.5rem' }}>
+              <code style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', wordBreak: 'break-all', display: 'block' }}>
                 {metrics.scriptPath}
               </code>
             </div>
           )}
 
           {metrics.extractedCount > 0 && (
-            <div className="mt-4" style={{ padding: '1rem', background: 'rgba(63, 185, 80, 0.1)', borderLeft: '3px solid var(--success-color)', borderRadius: '4px' }}>
+            <div
+              className="mt-4"
+              style={{ padding: '1rem', background: 'rgba(63, 185, 80, 0.1)', borderLeft: '3px solid var(--success-color)', borderRadius: '4px' }}
+            >
               <div className="flex items-center gap-2">
                 <Database size={16} color="var(--success-color)" />
                 <span style={{ color: 'var(--success-color)', fontWeight: 600 }}>
@@ -323,60 +231,13 @@ function App() {
           )}
         </div>
 
-        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-          <h2 className="flex items-center gap-2 mb-4">
-            <Terminal size={20} color="#8b949e" /> Agent Execution Logs
-          </h2>
-          <div className="logs-container">
-            {logs.length === 0 && (
-              <div style={{ color: '#333', textAlign: 'center', marginTop: 'auto', marginBottom: 'auto' }}>
-                Ready to start...
-              </div>
-            )}
-            {logs.map((log, i) => (
-              <div key={i} className={`log-line ${log.type}`}>
-                {log.text}
-              </div>
-            ))}
-            <div ref={logEndRef} />
-          </div>
-        </div>
+        <LogViewer logs={logs} />
       </div>
 
-      {extractedData.length > 0 && (
-        <div className="card mt-4">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="flex items-center gap-2">
-              <Table size={20} color="#58a6ff" /> Data Preview
-            </h2>
-            <button className="btn-secondary flex items-center gap-2" onClick={downloadData}>
-              <Download size={16} /> Export JSON
-            </button>
-          </div>
-          <div className="results-table-container">
-            <table className="results-table">
-              <thead>
-                <tr>
-                  {Object.keys(extractedData[0]).map(key => (
-                    <th key={key}>{key}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {extractedData.map((row, i) => (
-                  <tr key={i}>
-                    {Object.values(row).map((val: any, j) => (
-                      <td key={j} title={String(val)}>{String(val)}</td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <DataTable data={extractedData} />
     </div>
   );
 }
 
 export default App;
+

@@ -367,16 +367,21 @@ def build_script_prompt(
             step_info["first_data_column_index"] = step.get("first_data_column_index")
         steps_formatted.append(step_info)
     
-    prompt = SCRIPT_TEMPLATE.format(
-        site_name=site_name,
-        target_url=target_url,
-        recorded_steps_json=json.dumps(steps_formatted, indent=2),
-        grid_selector=grid_selector,
-        row_selector=row_selector,
-        columns_json=json.dumps(columns, indent=2),
-        first_data_column_index=first_data_column_index,
-        site_type=site_type
-    )
+    # Use explicit str.replace() instead of .format() to avoid KeyError on
+    # literal {type}, {bubbles}, {width}, etc. inside code-example blocks.
+    substitutions = [
+        ("{site_name}", site_name),
+        ("{target_url}", target_url),
+        ("{site_type}", site_type),
+        ("{recorded_steps_json}", json.dumps(steps_formatted, indent=2)),
+        ("{grid_selector}", grid_selector),
+        ("{row_selector}", row_selector),
+        ("{columns_json}", json.dumps(columns, indent=2)),
+        ("{first_data_column_index}", str(first_data_column_index)),
+    ]
+    prompt = SCRIPT_TEMPLATE
+    for placeholder, value in substitutions:
+        prompt = prompt.replace(placeholder, value)
     
     # Add grid HTML context if provided
     if grid_html:

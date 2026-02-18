@@ -54,5 +54,4 @@ class AgentState(TypedDict):
     clicked_selectors: List[str]    # Selectors we've already tried clicking
     grid_html: Optional[str]
     
-    # React SPA detection
-    is_react_spa: bool  # True if page requires React-specific input handling
+
