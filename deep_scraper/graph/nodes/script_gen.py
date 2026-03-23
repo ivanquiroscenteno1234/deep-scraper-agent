@@ -5,6 +5,7 @@ Contains:
 - node_generate_script_mcp: Generate Playwright scripts using LLM
 """
 
+import asyncio
 import json
 import os
 import datetime
@@ -113,8 +114,12 @@ async def node_generate_script_mcp(state: AgentState) -> Dict[str, Any]:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     script_path = os.path.join(output_dir, f"{site_name}_scraper_{timestamp}.py")
     
-    with open(script_path, 'w', encoding='utf-8') as f:
-        f.write(script_code)
+    # Save script using thread delegation to avoid blocking the event loop
+    def _save_script():
+        with open(script_path, 'w', encoding='utf-8') as f:
+            f.write(script_code)
+
+    await asyncio.to_thread(_save_script)
     
     log.success(f"Script saved: {script_path}")
     
