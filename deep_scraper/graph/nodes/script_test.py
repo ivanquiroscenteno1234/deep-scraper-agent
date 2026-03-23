@@ -7,6 +7,7 @@ Contains:
 - node_escalate: Escalate to human review
 """
 
+import asyncio
 import json
 import os
 import re
@@ -212,8 +213,10 @@ Return ONLY the fixed Python code, no explanations.
         log.info(f"Original: {len(script_code)} chars, Fixed: {len(fixed_code)} chars")
         
         # Save fixed script
-        with open(script_path, 'w', encoding='utf-8') as f:
-            f.write(fixed_code)
+        def _write_script():
+            with open(script_path, 'w', encoding='utf-8') as f:
+                f.write(fixed_code)
+        await asyncio.get_running_loop().run_in_executor(None, _write_script)
         
         log.success(f"Script fixed and saved")
         
