@@ -1,4 +1,4 @@
-# Deep Scraper Agent Backend (Force reload at 21:50 - Navigation Portal Fix)
+# Deep Scraper Agent Backend
 import os
 import sys
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
