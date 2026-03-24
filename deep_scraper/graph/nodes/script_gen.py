@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import datetime
+import aiofiles
 from typing import Any, Dict
 
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -114,12 +115,9 @@ async def node_generate_script_mcp(state: AgentState) -> Dict[str, Any]:
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     script_path = os.path.join(output_dir, f"{site_name}_scraper_{timestamp}.py")
     
-    # Save script using thread delegation to avoid blocking the event loop
-    def _save_script():
-        with open(script_path, 'w', encoding='utf-8') as f:
-            f.write(script_code)
-
-    await asyncio.to_thread(_save_script)
+    # Save script using aiofiles for native async file I/O
+    async with aiofiles.open(script_path, 'w', encoding='utf-8') as f:
+        await f.write(script_code)
     
     log.success(f"Script saved: {script_path}")
     
