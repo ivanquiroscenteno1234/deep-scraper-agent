@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sys
+import aiofiles
 from typing import Any, Dict
 
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -212,12 +213,9 @@ Return ONLY the fixed Python code, no explanations.
         
         log.info(f"Original: {len(script_code)} chars, Fixed: {len(fixed_code)} chars")
         
-        # Save fixed script - Use asyncio.to_thread for non-blocking file I/O
-        def _write_script():
-            with open(script_path, 'w', encoding='utf-8') as f:
-                f.write(fixed_code)
-
-        await asyncio.to_thread(_write_script)
+        # Save fixed script - Use aiofiles for native async file I/O
+        async with aiofiles.open(script_path, 'w', encoding='utf-8') as f:
+            await f.write(fixed_code)
         
         log.success(f"Script fixed and saved")
         
