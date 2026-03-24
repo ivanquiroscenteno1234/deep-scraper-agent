@@ -26,6 +26,44 @@ from deep_scraper.graph.nodes.config import (
     DEFAULT_HTML_LIMIT,
 )
 
+# Landmark Web patterns (Flagler, etc.)
+_LANDMARK_PATTERNS = {
+    "input": [('id="name-name"', "#name-Name"), ('id="namesearchname"', "#NameSearchName")],
+    "submit": [('id="namesearchmodalsubmit"', "#nameSearchModalSubmit"), ('id="btnnamesearch"', "#btnNameSearch")],
+    "start_date": [('id="begindate-name"', "#beginDate-Name"), ('id="fromdate"', "#fromDate")],
+    "end_date": [('id="enddate-name"', "#endDate-Name"), ('id="todate"', "#toDate")],
+}
+
+def _detect_landmark_search_selectors(html_lower: str) -> dict:
+    """Helper to detect Landmark Web search modal elements from lowercased HTML."""
+    found_input, found_submit, found_start, found_end = None, None, None, None
+
+    for pattern, selector in _LANDMARK_PATTERNS["input"]:
+        if pattern in html_lower:
+            found_input = selector
+            break
+    for pattern, selector in _LANDMARK_PATTERNS["submit"]:
+        if pattern in html_lower:
+            found_submit = selector
+            break
+    for pattern, selector in _LANDMARK_PATTERNS["start_date"]:
+        if pattern in html_lower:
+            found_start = selector
+            break
+    for pattern, selector in _LANDMARK_PATTERNS["end_date"]:
+        if pattern in html_lower:
+            found_end = selector
+            break
+
+    if found_input and found_submit:
+        return {
+            "input": found_input,
+            "submit": found_submit,
+            "start_date": found_start or "",
+            "end_date": found_end or "",
+        }
+    return {}
+
 
 async def node_click_link_mcp(state: AgentState) -> Dict[str, Any]:
     """
@@ -199,44 +237,11 @@ async def node_click_link_mcp(state: AgentState) -> Dict[str, Any]:
             html_lower = full_html.lower()
             
             # Landmark Web patterns (Flagler, etc.)
-            landmark_patterns = {
-                "input": [('id="name-name"', "#name-Name"), ('id="namesearchname"', "#NameSearchName")],
-                "submit": [('id="namesearchmodalsubmit"', "#nameSearchModalSubmit"), ('id="btnnamesearch"', "#btnNameSearch")],
-                "start_date": [('id="begindate-name"', "#beginDate-Name"), ('id="fromdate"', "#fromDate")],
-                "end_date": [('id="enddate-name"', "#endDate-Name"), ('id="todate"', "#toDate")],
-            }
+            # Using module-level _LANDMARK_PATTERNS
             
-            found_input = None
-            found_submit = None
-            found_start = None
-            found_end = None
-            
-            for pattern, selector in landmark_patterns["input"]:
-                if pattern in html_lower:
-                    found_input = selector
-                    break
-            for pattern, selector in landmark_patterns["submit"]:
-                if pattern in html_lower:
-                    found_submit = selector
-                    break
-            for pattern, selector in landmark_patterns["start_date"]:
-                if pattern in html_lower:
-                    found_start = selector
-                    break
-            for pattern, selector in landmark_patterns["end_date"]:
-                if pattern in html_lower:
-                    found_end = selector
-                    break
-            
-            # If we found Landmark Web search modal elements, we're on a search page!
-            if found_input and found_submit:
-                log.success(f"Detected Landmark Web search modal: input={found_input}, submit={found_submit}")
-                detected_search_selectors = {
-                    "input": found_input,
-                    "submit": found_submit,
-                    "start_date": found_start or "",
-                    "end_date": found_end or "",
-                }
+            detected_search_selectors = _detect_landmark_search_selectors(html_lower)
+            if detected_search_selectors:
+                log.success(f"Detected Landmark Web search modal: input={detected_search_selectors['input']}, submit={detected_search_selectors['submit']}")
                 # Create a fake post_analysis that indicates search page
                 class FakePostAnalysis:
                     page_changed = True
@@ -288,31 +293,9 @@ async def node_click_link_mcp(state: AgentState) -> Dict[str, Any]:
                                 html_lower_3 = full_html_3.lower()
                                 
                                 # Check if we now have search form
-                                for pattern, selector in landmark_patterns["input"]:
-                                    if pattern in html_lower_3:
-                                        found_input = selector
-                                        break
-                                for pattern, selector in landmark_patterns["submit"]:
-                                    if pattern in html_lower_3:
-                                        found_submit = selector
-                                        break
-                                for pattern, selector in landmark_patterns["start_date"]:
-                                    if pattern in html_lower_3:
-                                        found_start = selector
-                                        break
-                                for pattern, selector in landmark_patterns["end_date"]:
-                                    if pattern in html_lower_3:
-                                        found_end = selector
-                                        break
-                                
-                                if found_input and found_submit:
+                                detected_search_selectors = _detect_landmark_search_selectors(html_lower_3)
+                                if detected_search_selectors:
                                     log.success(f"Search form now visible after accepting disclaimer!")
-                                    detected_search_selectors = {
-                                        "input": found_input,
-                                        "submit": found_submit,
-                                        "start_date": found_start or "",
-                                        "end_date": found_end or "",
-                                    }
                                     class FakePostAnalysis3:
                                         page_changed = True
                                         is_search_page = True
@@ -362,30 +345,8 @@ async def node_click_link_mcp(state: AgentState) -> Dict[str, Any]:
                         if 'id="name-name"' in html_lower_2 or 'id="namesearchmodalsubmit"' in html_lower_2:
                             log.success(f"JS approach worked: {js_script[:50]}...")
                             # Re-detect selectors
-                            for pattern, selector in landmark_patterns["input"]:
-                                if pattern in html_lower_2:
-                                    found_input = selector
-                                    break
-                            for pattern, selector in landmark_patterns["submit"]:
-                                if pattern in html_lower_2:
-                                    found_submit = selector
-                                    break
-                            for pattern, selector in landmark_patterns["start_date"]:
-                                if pattern in html_lower_2:
-                                    found_start = selector
-                                    break
-                            for pattern, selector in landmark_patterns["end_date"]:
-                                if pattern in html_lower_2:
-                                    found_end = selector
-                                    break
-                            
-                            if found_input and found_submit:
-                                detected_search_selectors = {
-                                    "input": found_input,
-                                    "submit": found_submit,
-                                    "start_date": found_start or "",
-                                    "end_date": found_end or "",
-                                }
+                            detected_search_selectors = _detect_landmark_search_selectors(html_lower_2)
+                            if detected_search_selectors:
                                 class FakePostAnalysis2:
                                     page_changed = True
                                     is_search_page = True
