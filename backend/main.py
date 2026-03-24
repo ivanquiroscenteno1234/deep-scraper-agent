@@ -244,14 +244,20 @@ async def execute_script(request: ExecuteRequest):
         # Final Verification
         final_data = []
         found_path = None
+
+        def read_csv_sync(filepath: str) -> list:
+            """Helper to read CSV synchronously."""
+            with open(filepath, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                return list(reader)
+
         for path in potential_paths:
             if os.path.exists(path):
                 found_path = path
                 try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        reader = csv.DictReader(f)
-                        final_data = list(reader)
-                        break
+                    # BOLT ⚡: Offload blocking file I/O to a thread to prevent event loop starvation
+                    final_data = await asyncio.to_thread(read_csv_sync, path)
+                    break
                 except Exception as e:
                     print(f"DEBUG: Failed to read CSV at {path}: {e}")
         
