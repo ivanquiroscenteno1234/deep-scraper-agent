@@ -56,21 +56,29 @@ async def list_scripts():
     Return a list of available generated scripts.
     """
     scripts_dir = os.path.join(os.path.dirname(__file__), "output", "generated_scripts")
-    scripts = []
     
+    def get_scripts(d):
+        scripts_list = []
+        try:
+            for entry in os.scandir(d):
+                if entry.is_file() and entry.name.endswith(".py"):
+                    modified_time = datetime.fromtimestamp(entry.stat().st_mtime).isoformat()
+                    scripts_list.append({
+                        "name": entry.name,
+                        "path": entry.path,
+                        "modified": modified_time
+                    })
+        except OSError:
+            pass
+        # Sort by modified date, newest first
+        scripts_list.sort(key=lambda x: x["modified"], reverse=True)
+        return scripts_list
+
     if os.path.exists(scripts_dir):
-        for filename in os.listdir(scripts_dir):
-            if filename.endswith(".py"):
-                filepath = os.path.join(scripts_dir, filename)
-                modified_time = datetime.fromtimestamp(os.path.getmtime(filepath)).isoformat()
-                scripts.append({
-                    "name": filename,
-                    "path": filepath,
-                    "modified": modified_time
-                })
-    
-    # Sort by modified date, newest first
-    scripts.sort(key=lambda x: x["modified"], reverse=True)
+        scripts = await asyncio.to_thread(get_scripts, scripts_dir)
+    else:
+        scripts = []
+
     return {"scripts": scripts}
 
 @app.post("/api/run")
@@ -236,10 +244,23 @@ async def execute_script(request: ExecuteRequest):
         
         # If no csv_file found in stdout, find most recent CSV in output/data/
         if not csv_file and os.path.isdir(output_data_dir):
-            csv_files = [f for f in os.listdir(output_data_dir) if f.endswith('.csv')]
-            if csv_files:
-                csv_files.sort(key=lambda x: os.path.getmtime(os.path.join(output_data_dir, x)), reverse=True)
-                potential_paths.append(os.path.join(output_data_dir, csv_files[0]))
+            def find_newest_csv(d):
+                newest = None
+                max_mtime = -1
+                try:
+                    for entry in os.scandir(d):
+                        if entry.is_file() and entry.name.endswith('.csv'):
+                            mtime = entry.stat().st_mtime
+                            if mtime > max_mtime:
+                                max_mtime = mtime
+                                newest = entry.path
+                except OSError:
+                    pass
+                return newest
+
+            newest_csv_path = await asyncio.to_thread(find_newest_csv, output_data_dir)
+            if newest_csv_path:
+                potential_paths.append(newest_csv_path)
         
         # Final Verification
         final_data = []
