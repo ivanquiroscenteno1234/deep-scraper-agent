@@ -21,3 +21,9 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2024-07-26 - Blocking IO in LangGraph Nodes
+
+**Learning:** Found another instance of `subprocess.run` used synchronously inside an `async def` LangGraph node (`node_test_script`). This blocks the event loop while waiting for the test script to execute, starving other async tasks like WebSocket heartbeats and concurrent graph nodes.
+
+**Action:** Replaced `subprocess.run` with `asyncio.create_subprocess_exec` and wrapped the output in a `subprocess.CompletedProcess` to maintain compatibility with existing logic, thus freeing the event loop.
