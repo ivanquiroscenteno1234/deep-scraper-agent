@@ -55,14 +55,33 @@ async def node_test_script(state: AgentState) -> Dict[str, Any]:
         }
     
     try:
-        result = subprocess.run(
-            [sys.executable, script_path, search_query, start_date, end_date],
-            capture_output=True,
-            text=True,
-            timeout=SCRIPT_TEST_TIMEOUT_SECONDS,
+        # BOLT ⚡: Replaced blocking subprocess.run with async create_subprocess_exec
+        # This prevents the script test from blocking the event loop while waiting
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            script_path,
+            search_query,
+            start_date,
+            end_date,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
             cwd=os.getcwd()
         )
         
+        # Wait for the subprocess to complete with timeout
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            process.communicate(),
+            timeout=SCRIPT_TEST_TIMEOUT_SECONDS
+        )
+
+        # Wrap the result in a CompletedProcess-like object for compatibility
+        result = subprocess.CompletedProcess(
+            args=[sys.executable, script_path, search_query, start_date, end_date],
+            returncode=process.returncode,
+            stdout=stdout_bytes.decode('utf-8', errors='replace'),
+            stderr=stderr_bytes.decode('utf-8', errors='replace')
+        )
+
         log.debug(f"Script stdout ({len(result.stdout)} chars)")
         if result.stderr:
             log.debug(f"Script stderr ({len(result.stderr)} chars)")
@@ -133,7 +152,17 @@ async def node_test_script(state: AgentState) -> Dict[str, Any]:
                 "logs": (state.get("logs") or []) + log.get_logs()
             }
             
-    except subprocess.TimeoutExpired:
+    except (subprocess.TimeoutExpired, asyncio.TimeoutError):
+        # Handle cases where the process doesn't finish in time
+        if 'process' in locals():
+            try:
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=1.0)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
         log.error(f"Script timed out after {SCRIPT_TEST_TIMEOUT_SECONDS}s")
         return {
             "status": "SCRIPT_FAILED",
