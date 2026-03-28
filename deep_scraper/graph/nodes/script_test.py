@@ -55,14 +55,37 @@ async def node_test_script(state: AgentState) -> Dict[str, Any]:
         }
     
     try:
-        result = subprocess.run(
-            [sys.executable, script_path, search_query, start_date, end_date],
-            capture_output=True,
-            text=True,
-            timeout=SCRIPT_TEST_TIMEOUT_SECONDS,
+        # BOLT ⚡: Replaced blocking subprocess.run with async create_subprocess_exec
+        # This prevents the long-running scraper from blocking the event loop
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            script_path,
+            search_query,
+            start_date,
+            end_date,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
             cwd=os.getcwd()
         )
         
+        stdout_bytes, stderr_bytes = await asyncio.wait_for(
+            process.communicate(),
+            timeout=SCRIPT_TEST_TIMEOUT_SECONDS
+        )
+
+        # Create a mock result object to match subprocess.run return format
+        class CompletedProcessMock:
+            def __init__(self, stdout, stderr, returncode):
+                self.stdout = stdout
+                self.stderr = stderr
+                self.returncode = returncode
+
+        result = CompletedProcessMock(
+            stdout=stdout_bytes.decode(errors='replace'),
+            stderr=stderr_bytes.decode(errors='replace'),
+            returncode=process.returncode
+        )
+
         log.debug(f"Script stdout ({len(result.stdout)} chars)")
         if result.stderr:
             log.debug(f"Script stderr ({len(result.stderr)} chars)")
@@ -133,7 +156,15 @@ async def node_test_script(state: AgentState) -> Dict[str, Any]:
                 "logs": (state.get("logs") or []) + log.get_logs()
             }
             
-    except subprocess.TimeoutExpired:
+    except asyncio.TimeoutError:
+        # In case of timeout, kill the process if it's still running
+        try:
+            if 'process' in locals():
+                process.kill()
+                await process.wait()
+        except Exception:
+            pass
+
         log.error(f"Script timed out after {SCRIPT_TEST_TIMEOUT_SECONDS}s")
         return {
             "status": "SCRIPT_FAILED",
