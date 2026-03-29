@@ -21,3 +21,9 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2024-05-25 - Blocking IO in CSV Reading
+
+**Learning:** Found synchronous `csv.DictReader` operations inside an `async def` FastAPI endpoint (`execute_script`). Similar to subprocess execution, blocking file I/O operations stall the event loop, particularly when reading large data sets, leading to poor responsiveness in the server.
+
+**Action:** Wrap synchronous file reads inside `asyncio.to_thread` (e.g., `await asyncio.to_thread(read_csv, path)`) to offload them to a separate thread, improving concurrency and responsiveness.

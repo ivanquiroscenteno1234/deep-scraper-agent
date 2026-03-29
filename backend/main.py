@@ -265,14 +265,20 @@ async def execute_script(request: ExecuteRequest):
         # Final Verification
         final_data = []
         found_path = None
+
+        # BOLT ⚡: Offload synchronous CSV reading to a separate thread
+        # This prevents blocking the FastAPI event loop when reading large files
+        def read_csv(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                return list(reader)
+
         for path in potential_paths:
             if os.path.exists(path):
                 found_path = path
                 try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        reader = csv.DictReader(f)
-                        final_data = list(reader)
-                        break
+                    final_data = await asyncio.to_thread(read_csv, path)
+                    break
                 except Exception as e:
                     print(f"DEBUG: Failed to read CSV at {path}: {e}")
         
