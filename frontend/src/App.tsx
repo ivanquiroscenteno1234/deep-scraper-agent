@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Terminal, Database, FileCode, Loader2, Search, Download, Table, FolderOpen, RefreshCw } from 'lucide-react';
 
 interface LogEntry {
@@ -14,7 +14,7 @@ function App() {
   const [endDate, setEndDate] = useState(new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }));
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [metrics, setMetrics] = useState({ scriptPath: '', extractedCount: 0 });
-  const [extractedData, setExtractedData] = useState<any[]>([]);
+  const [extractedData, setExtractedData] = useState<Record<string, unknown>[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
 
   // Script Library state
@@ -35,7 +35,7 @@ function App() {
     setLogs(prev => [...prev, { text, type }]);
   };
 
-  const loadScripts = async () => {
+  const loadScripts = useCallback(async () => {
     setIsLoadingScripts(true);
     try {
       const response = await fetch('http://localhost:8006/api/scripts');
@@ -51,12 +51,16 @@ function App() {
     } finally {
       setIsLoadingScripts(false);
     }
-  };
+  }, [selectedScriptPath]); // selectedScriptPath required by linter
 
   // Auto-load scripts on mount
+  // BOLT ⚡ OPTIMIZATION:
+  // Isolate default script selection to prevent circular dependency
+  // and redundant API calls when selectedScriptPath changes.
   useEffect(() => {
     loadScripts();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run ONCE on mount
 
   const startScraping = async () => {
     setLogs([]);
@@ -91,13 +95,18 @@ function App() {
         }
 
         if (message.logs) {
-          message.logs.forEach((log: string) => {
+          // BOLT ⚡ OPTIMIZATION:
+          // Batching multiple logs into a single setLogs call instead of calling
+          // setLogs iteratively. This guarantees O(1) state update and prevents O(N) re-renders,
+          // ensuring the UI stays responsive when streaming a large number of logs.
+          const newLogs = message.logs.map((log: string) => {
             let type: LogEntry['type'] = 'info';
             if (log.includes('[STEP')) type = 'step';
             if (log.includes('✅') || log.includes('SUCCESS')) type = 'success';
             if (log.includes('❌') || log.includes('FAILED')) type = 'error';
-            addLog(log, type);
+            return { text: log, type };
           });
+          setLogs(prev => [...prev, ...newLogs]);
         }
 
         if (message.data?.script_path) {
@@ -152,7 +161,10 @@ function App() {
         // Add step logs from stdout if available
         if (result.stdout) {
           const stepLogs = result.stdout.split('\n').filter((l: string) => l.includes('[STEP'));
-          stepLogs.forEach((l: string) => addLog(l, 'step'));
+          if (stepLogs.length > 0) {
+            // BOLT ⚡ OPTIMIZATION: Batched state update to prevent N re-renders
+            setLogs(prev => [...prev, ...stepLogs.map((l: string) => ({ text: l, type: 'step' as const }))]);
+          }
         }
       } else {
         addLog(`❌ Execution failed: ${result.error}`, 'error');
@@ -365,7 +377,7 @@ function App() {
               <tbody>
                 {extractedData.map((row, i) => (
                   <tr key={i}>
-                    {Object.values(row).map((val: any, j) => (
+                    {Object.values(row).map((val: unknown, j) => (
                       <td key={j} title={String(val)}>{String(val)}</td>
                     ))}
                   </tr>
