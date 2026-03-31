@@ -21,3 +21,9 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2026-03-31 - React State Update Batching
+
+**Learning:** Sequential React state updates (e.g., `setLogs(prev => [...prev, item])`) inside loops for WebSocket log streaming cause O(N) array copies and re-evaluations, leading to performance degradation during heavy logging.
+
+**Action:** Use an `addLogs` helper to batch arrays of logs into a single state update (`setLogs(prev => [...prev, ...newItems])`) to ensure O(1) rendering and allocation per message batch.
