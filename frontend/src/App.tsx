@@ -14,7 +14,7 @@ function App() {
   const [endDate, setEndDate] = useState(new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }));
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [metrics, setMetrics] = useState({ scriptPath: '', extractedCount: 0 });
-  const [extractedData, setExtractedData] = useState<any[]>([]);
+  const [extractedData, setExtractedData] = useState<Record<string, unknown>[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
 
   // Script Library state
@@ -55,7 +55,8 @@ function App() {
 
   // Auto-load scripts on mount
   useEffect(() => {
-    loadScripts();
+    loadScripts().catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const startScraping = async () => {
@@ -91,13 +92,15 @@ function App() {
         }
 
         if (message.logs) {
-          message.logs.forEach((log: string) => {
+          // ⚡ Bolt Optimization: Batch React state updates inside WebSocket onmessage to prevent O(N) array copies
+          const newLogs: LogEntry[] = message.logs.map((log: string) => {
             let type: LogEntry['type'] = 'info';
             if (log.includes('[STEP')) type = 'step';
             if (log.includes('✅') || log.includes('SUCCESS')) type = 'success';
             if (log.includes('❌') || log.includes('FAILED')) type = 'error';
-            addLog(log, type);
+            return { text: log, type };
           });
+          setLogs(prev => [...prev, ...newLogs]);
         }
 
         if (message.data?.script_path) {
@@ -365,7 +368,7 @@ function App() {
               <tbody>
                 {extractedData.map((row, i) => (
                   <tr key={i}>
-                    {Object.values(row).map((val: any, j) => (
+                    {Object.values(row).map((val: unknown, j) => (
                       <td key={j} title={String(val)}>{String(val)}</td>
                     ))}
                   </tr>
