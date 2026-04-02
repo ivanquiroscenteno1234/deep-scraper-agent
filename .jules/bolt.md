@@ -21,3 +21,7 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2024-07-25 - React Loop State Updates Optimization
+**Learning:** Sequential React state updates (e.g., `setLogs(prev => [...prev, item])`) inside loops for streaming data cause O(N) array copies even with React 18 batching, leading to degraded frontend performance with large log streams.
+**Action:** Always batch updates into a single state change (e.g., `setLogs(prev => [...prev, ...newItems])`) to ensure O(1) update performance.
