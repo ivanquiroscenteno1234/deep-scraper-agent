@@ -21,3 +21,9 @@
 **Learning:** Fetching HTML and Text separately (even with `asyncio.gather`) requires two network roundtrips to the MCP server. This is inefficient for large pages and can lead to inconsistent state if the page updates between calls.
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
+
+## 2024-08-01 - Browser-Side HTML Cleaning
+
+**Learning:** Previously, `get_snapshot()` fetched both `outerHTML` and `innerText` over the MCP connection and then relied on Python-side string manipulation (`clean_html_for_llm`) to reduce the token size for LLM ingestion. The innerText computation is inherently slow on complex pages, and passing a huge DOM string over the MCP network just to truncate it later is an anti-pattern.
+
+**Action:** Implemented `get_cleaned_html()` in `MCPBrowserAdapter` that offloads DOM cleaning (removing scripts, styles, hidden elements, and comments) to the browser via injected JS `evaluate()`. This significantly reduces the string payload sent over the MCP network and completely skips the expensive `innerText` calculation in flows where only HTML is required (like page classification heuristics). Additionally, Python-side lowercasing was hoisted out of a generator loop for an added speed boost.

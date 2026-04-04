@@ -19,7 +19,6 @@ from deep_scraper.graph.nodes.config import (
     get_mcp_browser,
     reset_mcp_browser,
     NavigationDecision,
-    clean_html_for_llm,
     StructuredLogger,
 )
 
@@ -99,10 +98,8 @@ async def node_analyze_mcp(state: AgentState) -> Dict[str, Any]:
     
     browser = await get_mcp_browser()
     
-    # Get page snapshot and clean it for LLM
-    snapshot = await browser.get_snapshot()
-    raw_html = snapshot.get("html", str(snapshot))
-    page_content = clean_html_for_llm(raw_html, max_length=100000)
+    # Get page snapshot cleaned browser-side for LLM
+    page_content = await browser.get_cleaned_html(max_length=100000)
     
     # Heuristic check: If we see search inputs, it's likely a search page
     # even if LLM gets distracted by persistent disclaimer text.
@@ -117,13 +114,17 @@ async def node_analyze_mcp(state: AgentState) -> Dict[str, Any]:
         'type="search"', 'name="searchTerm"', 'id="searchInput"',
         "SearchCriteria", "searchForm", "txtSearch",
     ]
+
+    # Bolt ⚡ Optimization: Pre-lowercase content once for multiple checks
+    page_content_lower = page_content.lower()
+
     # Use page_content (cleaned) instead of raw_html to avoid hidden elements
     # Also require actual <input elements to be present - not just search keywords
-    has_input_elements = '<input' in page_content.lower()
-    has_search_indicators = any(indicator.lower() in page_content.lower() for indicator in search_indicators)
+    has_input_elements = '<input' in page_content_lower
+    has_search_indicators = any(indicator.lower() in page_content_lower for indicator in search_indicators)
     has_search_inputs = has_input_elements and has_search_indicators
     
-    log.info(f"Got snapshot ({len(raw_html)} chars, cleaned to {len(page_content)}). Has inputs: {has_input_elements}, Has indicators: {has_search_indicators}")
+    log.info(f"Got browser-cleaned snapshot (length {len(page_content)}). Has inputs: {has_input_elements}, Has indicators: {has_search_indicators}")
 
     
     structured_llm = llm.with_structured_output(NavigationDecision)
@@ -207,33 +208,33 @@ Provide CSS selectors (not XPath).
             
             # Fill in selectors based on what we find in the HTML
             # Check for id attributes (not CSS selectors) in HTML
-            html_lower = raw_html.lower()
+            html_lower = page_content_lower
             
             potential_input = ""
             potential_submit = ""
             potential_start = ""
             potential_end = ""
 
-            if 'id="name-name"' in html_lower or 'id="name-Name"' in raw_html:
+            if 'id="name-name"' in html_lower or 'id="name-Name"' in page_content:
                 potential_input = "#name-Name"
             elif 'id="searchonname"' in html_lower:
                 potential_input = "#SearchOnName"
             elif 'name="searchterm"' in html_lower:
                 potential_input = "[name='searchTerm']"
                 
-            if 'id="namesearchmodalsubmit"' in html_lower or 'id="nameSearchModalSubmit"' in raw_html:
+            if 'id="namesearchmodalsubmit"' in html_lower or 'id="nameSearchModalSubmit"' in page_content:
                 potential_submit = "#nameSearchModalSubmit"
             elif 'id="btnsearch"' in html_lower:
                 potential_submit = "#btnSearch"
             elif 'type="submit"' in html_lower:
                 potential_submit = "button[type='submit']"
                 
-            if 'id="begindate-name"' in html_lower or 'id="beginDate-Name"' in raw_html:
+            if 'id="begindate-name"' in html_lower or 'id="beginDate-Name"' in page_content:
                 potential_start = "#beginDate-Name"
             elif 'id="recorddatefrom"' in html_lower:
                 potential_start = "#RecordDateFrom"
                 
-            if 'id="enddate-name"' in html_lower or 'id="endDate-Name"' in raw_html:
+            if 'id="enddate-name"' in html_lower or 'id="endDate-Name"' in page_content:
                 potential_end = "#endDate-Name"
             elif 'id="recorddateto"' in html_lower:
                 potential_end = "#RecordDateTo"

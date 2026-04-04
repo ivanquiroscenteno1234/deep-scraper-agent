@@ -149,6 +149,47 @@ class MCPBrowserAdapter:
             print(f"⚠️ Failed to get content: {e}")
             return ""
     
+    async def get_cleaned_html(self, max_length: int = 100000) -> str:
+        """
+        Get HTML cleaned browser-side.
+
+        Optimization (Bolt ⚡):
+        - Offloads DOM cleaning to the browser, reducing MCP network payload.
+        - Avoids expensive innerText calculation when only HTML is needed.
+        """
+        if not self.mcp:
+            return ""
+
+        script = f"""
+        (() => {{
+            const clone = document.documentElement.cloneNode(true);
+
+            // Remove unnecessary elements
+            const selectorsToRemove = ['script', 'style', 'link', 'svg', 'noscript', 'iframe', 'meta'];
+            selectorsToRemove.forEach(selector => {{
+                clone.querySelectorAll(selector).forEach(el => el.remove());
+            }});
+
+            // Remove hidden elements using inline styles (naive check on clone)
+            clone.querySelectorAll('[style*="display: none"], [style*="display:none"], [style*="visibility: hidden"]').forEach(el => el.remove());
+
+            // Strip comments
+            let html = clone.outerHTML;
+            html = html.replace(/<!--[\\s\\S]*?-->/g, '');
+
+            if (html.length > {max_length}) {{
+                return html.substring(0, {max_length}) + '\\n... [TRUNCATED]';
+            }}
+            return html;
+        }})()
+        """
+        try:
+            result = await self.evaluate(script)
+            return str(result) if result else ""
+        except Exception as e:
+            print(f"⚠️ Failed to get cleaned HTML: {e}")
+            return ""
+
     async def get_snapshot(self) -> Dict[str, Any]:
         """
         Get page HTML and text for LLM analysis.
