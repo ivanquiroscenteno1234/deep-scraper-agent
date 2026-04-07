@@ -108,14 +108,14 @@ async def node_generate_script_mcp(state: AgentState) -> Dict[str, Any]:
     # Save the generated script
     output_dir = os.path.join(os.getcwd(), "output", "generated_scripts")
     data_dir = os.path.join(os.getcwd(), "output", "data")
-    os.makedirs(output_dir, exist_ok=True)
-    os.makedirs(data_dir, exist_ok=True)
     
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     script_path = os.path.join(output_dir, f"{site_name}_scraper_{timestamp}.py")
     
-    # Save script using thread delegation to avoid blocking the event loop
+    # BOLT ⚡: Offload all blocking file I/O operations (including makedirs) to a separate thread
     def _save_script():
+        os.makedirs(output_dir, exist_ok=True)
+        os.makedirs(data_dir, exist_ok=True)
         with open(script_path, 'w', encoding='utf-8') as f:
             f.write(script_code)
 

@@ -35,3 +35,6 @@
 ## 2025-04-06 - Batching React State Updates for Log Streams
 **Learning:** Sequential React state updates (e.g., `setLogs(prev => [...prev, item])`) inside loops for WebSocket log streaming cause O(N) array copies and evaluations even with React 18 batching.
 **Action:** These should be batched into a single update (`setLogs(prev => [...prev, ...newItems])`) to ensure O(1) performance and reduced allocations.
+## 2025-04-06 - Blocking File System Operations in Async Nodes
+**Learning:** Found `os.makedirs` used synchronously inside `node_generate_script_mcp` which is an asynchronous LangGraph node. Even simple directory creation checks can cause blocking file I/O operations and stall the FastAPI event loop during script generation.
+**Action:** Move all blocking file system operations, including `os.makedirs`, into the inner helper functions that are executed by `asyncio.to_thread`.
