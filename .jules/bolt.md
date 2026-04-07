@@ -27,3 +27,6 @@
 **Learning:** Using string operations like `.lower()` on large strings inside a generator expression (e.g., `any(indicator.lower() in page_content.lower() for indicator in _SEARCH_INDICATORS)`) recalculates the lowercase version of the large string for *every* item in the loop. For a 100k character string and 15 loop iterations, this can cause a noticeable CPU spike and slowdown.
 
 **Action:** Always hoist string transformations of large static text out of loops. E.g., `page_content_lower = page_content.lower()` and pre-compute lists where possible. This improved a specific `node_analyze_mcp` check by ~48%.
+## 2025-04-06 - Batching React State Updates for Log Streams
+**Learning:** Sequential React state updates (e.g., `setLogs(prev => [...prev, item])`) inside loops for WebSocket log streaming cause O(N) array copies and evaluations even with React 18 batching.
+**Action:** These should be batched into a single update (`setLogs(prev => [...prev, ...newItems])`) to ensure O(1) performance and reduced allocations.
