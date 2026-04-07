@@ -22,6 +22,11 @@
 
 **Action:** Implemented `get_full_page_content()` using `JSON.stringify` to fetch both DOM and Text in a single JS execution. This reduces MCP calls by 50% for snapshots and ensures atomic data capture.
 
+## 2024-07-26 - Blocking IO in LangGraph Async Nodes
+
+**Learning:** Found `subprocess.run` used synchronously inside `node_test_script` which is part of the asynchronous LangGraph. Because this step tests scripts with timeouts up to 120s, it completely starves the asyncio event loop and blocks all concurrent API and WebSocket handling.
+
+**Action:** Replaced `subprocess.run` with `asyncio.create_subprocess_exec` coupled with `asyncio.wait_for`. Handled process cleanup (`process.kill()` + `await process.wait()`) on `asyncio.TimeoutError` to prevent zombie processes. Provided a mock `CompletedProcess` to maintain backward compatibility with existing output parsing logic.
 ## 2024-05-25 - Redundant String Operations in Generators
 
 **Learning:** Using string operations like `.lower()` on large strings inside a generator expression (e.g., `any(indicator.lower() in page_content.lower() for indicator in _SEARCH_INDICATORS)`) recalculates the lowercase version of the large string for *every* item in the loop. For a 100k character string and 15 loop iterations, this can cause a noticeable CPU spike and slowdown.
