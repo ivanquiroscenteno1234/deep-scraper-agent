@@ -263,18 +263,23 @@ async def execute_script(request: ExecuteRequest):
                 potential_paths.append(newest_csv_path)
         
         # Final Verification
-        final_data = []
-        found_path = None
-        for path in potential_paths:
-            if os.path.exists(path):
-                found_path = path
-                try:
-                    with open(path, 'r', encoding='utf-8') as f:
-                        reader = csv.DictReader(f)
-                        final_data = list(reader)
-                        break
-                except Exception as e:
-                    print(f"DEBUG: Failed to read CSV at {path}: {e}")
+        def read_csv_data(paths):
+            """
+            Synchronous helper to check paths and read the first valid CSV file found.
+            """
+            for path in paths:
+                if os.path.exists(path):
+                    try:
+                        with open(path, 'r', encoding='utf-8') as f:
+                            reader = csv.DictReader(f)
+                            return list(reader), path
+                    except Exception as e:
+                        print(f"DEBUG: Failed to read CSV at {path}: {e}")
+            return [], None
+
+        # BOLT ⚡: Offload blocking file I/O and CSV parsing to a separate thread
+        # This prevents the event loop from being blocked by reading potentially large CSV files
+        final_data, found_path = await asyncio.to_thread(read_csv_data, potential_paths)
         
         if is_success or final_data:
             return {
