@@ -187,10 +187,17 @@ async def execute_script(request: ExecuteRequest):
     """
     Run a specific generated script and return the extracted data.
     """
-    if not os.path.exists(request.script_path):
+    # 🛡️ Sentinel: Prevent Path Traversal by validating against allowed directory
+    scripts_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "output", "generated_scripts"))
+    requested_path = os.path.abspath(request.script_path)
+
+    if not requested_path.startswith(os.path.join(scripts_dir, "")):
+        return {"error": "Invalid script path: Path traversal detected"}
+
+    if not os.path.exists(requested_path):
         return {"error": "Script file not found"}
 
-    print(f"DEBUG: Executing script {request.script_path}")
+    print(f"DEBUG: Executing script {requested_path}")
     print(f"DEBUG: Query='{request.search_query}', Start='{request.start_date}', End='{request.end_date}'")
     
     import subprocess
@@ -201,7 +208,7 @@ async def execute_script(request: ExecuteRequest):
         # This prevents the long-running scraper from blocking the FastAPI event loop
         process = await asyncio.create_subprocess_exec(
             sys.executable,
-            request.script_path,
+            requested_path,
             request.search_query,
             request.start_date,
             request.end_date,

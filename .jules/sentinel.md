@@ -1,0 +1,4 @@
+## 2024-05-24 - Path Traversal in Script Execution
+**Vulnerability:** The `execute_script` API endpoint in `backend/main.py` allowed arbitrary python files to be executed by accepting an unvalidated `script_path` directly from the user request payload. An attacker could potentially pass relative paths (e.g., `../../sensitive_script.py`) to execute files outside the intended `output/generated_scripts` directory.
+**Learning:** Even internal or admin-facing endpoints that execute files based on parameters need strict validation to prevent path traversal when passing inputs to `asyncio.create_subprocess_exec` or `subprocess.run`. Simple `os.path.exists()` checks do not prevent directory traversal.
+**Prevention:** Always resolve the absolute path of the requested file using `os.path.abspath()` and verify it strictly starts with the authorized base directory's absolute path (including a trailing separator) before permitting execution or access.
