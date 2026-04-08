@@ -68,9 +68,75 @@ def simplify_dom(html_content: str) -> str:
 
 def get_interactive_map(page) -> str:
     """
-    Returns a simplified representation of the page's interactive elements using Playwright.
+    Returns a simplified representation of the page's interactive elements using Playwright,
+    including bounding boxes obtained via JS injection.
     """
-    # We can inject JS to get a better list with bounding boxes if needed later.
-    # For now, we'll use BS4 on the content.
-    content = page.content()
-    return simplify_dom(content)
+    js_script = """
+    () => {
+        const interactables = Array.from(document.querySelectorAll('input, button, select, textarea, a, label'));
+        const elements = [];
+
+        for (const el of interactables) {
+            const rect = el.getBoundingClientRect();
+
+            // Skip elements that are not visible (width or height is 0)
+            if (rect.width === 0 || rect.height === 0) {
+                continue;
+            }
+
+            // For 'a' tags, skip if they have no text
+            if (el.tagName.toLowerCase() === 'a' && !el.innerText.trim()) {
+                continue;
+            }
+
+            const attrs = {};
+            const allowedAttrs = ['id', 'name', 'type', 'placeholder', 'value', 'aria-label', 'role', 'class', 'href'];
+            for (const attr of allowedAttrs) {
+                if (el.hasAttribute(attr)) {
+                    attrs[attr] = el.getAttribute(attr);
+                }
+            }
+
+            elements.push({
+                tag: el.tagName.toLowerCase(),
+                attrs: attrs,
+                x: Math.round(rect.x),
+                y: Math.round(rect.y),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+                text: el.innerText ? el.innerText.trim() : ''
+            });
+        }
+        return elements;
+    }
+    """
+
+    # The current codebase uses the sync API for Playwright in this context
+    # (as seen in the original `page.content()`). Thus evaluate should be called synchronously.
+    elements_data = page.evaluate(js_script)
+
+    if not elements_data:
+        return ""
+
+    simplified_html_parts = []
+    for data in elements_data:
+        tag = data['tag']
+        attrs_str = " ".join([f'{k}="{v}"' for k, v in data.get('attrs', {}).items()])
+
+        # Build a bounding box attribute string
+        bbox_str = f'x="{data["x"]}" y="{data["y"]}" width="{data["width"]}" height="{data["height"]}"'
+
+        # Combine attributes and bbox
+        all_attrs = f"{attrs_str} {bbox_str}".strip()
+
+        text = data.get('text', '')
+
+        if tag in ['input']:
+            simplified_html_parts.append(f"<{tag} {all_attrs}>")
+        else:
+            if text:
+                simplified_html_parts.append(f"<{tag} {all_attrs}>{text}</{tag}>")
+            else:
+                simplified_html_parts.append(f"<{tag} {all_attrs}></{tag}>")
+
+    return "\n".join(simplified_html_parts) + "\n"
