@@ -38,3 +38,7 @@
 ## 2025-04-06 - Blocking File System Operations in Async Nodes
 **Learning:** Found `os.makedirs` used synchronously inside `node_generate_script_mcp` which is an asynchronous LangGraph node. Even simple directory creation checks can cause blocking file I/O operations and stall the FastAPI event loop during script generation.
 **Action:** Move all blocking file system operations, including `os.makedirs`, into the inner helper functions that are executed by `asyncio.to_thread`.
+## 2025-04-06 - Browser-Side HTML Cleaning
+
+**Learning:** Fetching raw HTML snapshots (`get_snapshot()`) over the MCP WebSocket connection for LLM analysis transfers large payloads (>100KB), only for the server to run regex cleaning via `clean_html_for_llm` and truncate it. This creates unnecessary network I/O and latency.
+**Action:** Implemented `browser.get_cleaned_html()` to run the DOM cleaning logic (removing scripts, styles, hidden elements, comments) directly in the browser via `evaluate()`. This significantly reduces the payload size sent over the WebSocket and offloads processing from the server to the browser. Replaced `get_snapshot()` with this new method in `navigation.py` and `interaction.py`.
