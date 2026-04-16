@@ -246,8 +246,18 @@ async def execute_script(request: ExecuteRequest):
         potential_paths = []
         
         if csv_file:
-            potential_paths.append(csv_file)  # Absolute path from stdout
-            potential_paths.append(os.path.join(output_data_dir, os.path.basename(csv_file)))
+            # 🛡️ Sentinel: Prevent Path Traversal via stdout injection
+            parsed_path = os.path.abspath(csv_file)
+            allowed_dir = os.path.abspath(output_data_dir)
+
+            # Only allow if it's within the output/data directory
+            if parsed_path.startswith(os.path.join(allowed_dir, "")):
+                potential_paths.append(parsed_path)
+
+            # Always fallback to checking the basename in the allowed directory
+            safe_basename_path = os.path.join(allowed_dir, os.path.basename(csv_file))
+            if safe_basename_path not in potential_paths:
+                potential_paths.append(safe_basename_path)
         
         # If no csv_file found in stdout, find most recent CSV in output/data/
         if not csv_file and os.path.isdir(output_data_dir):
