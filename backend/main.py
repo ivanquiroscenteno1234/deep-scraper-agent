@@ -260,8 +260,10 @@ async def execute_script(request: ExecuteRequest):
                 potential_paths.append(safe_basename_path)
         
         # If no csv_file found in stdout, find most recent CSV in output/data/
-        if not csv_file and os.path.isdir(output_data_dir):
+        if not csv_file:
             def find_newest_csv(d):
+                if not os.path.isdir(d):
+                    return None
                 newest = None
                 max_mtime = -1
                 try:
