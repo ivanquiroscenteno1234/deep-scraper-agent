@@ -27,6 +27,13 @@ from deep_scraper.graph.nodes.config import (
     SCRIPT_TEST_TIMEOUT_SECONDS,
 )
 
+# --- Pre-compiled Regex Patterns for Performance ---
+# BOLT ⚡: Pre-compiling regex avoids recompilation inside the script test execution node
+_ROW_COUNT_PATTERNS = [
+    re.compile(r'(?:Extracted|Found|Saved)\s+(\d+)\s+(?:rows|records|items)', re.IGNORECASE),
+    re.compile(r'SUCCESS:\s+Extracted\s+(\d+)', re.IGNORECASE)
+]
+
 
 async def node_test_script(state: AgentState) -> Dict[str, Any]:
     """
@@ -97,15 +104,11 @@ async def node_test_script(state: AgentState) -> Dict[str, Any]:
             stdout_upper = result.stdout.upper()
             is_success = "SUCCESS" in stdout_upper or "[SUCCESS]" in stdout_upper
             
-            if is_success and any(x in stdout_upper for x in ["EXTRACTED", "FOUND", "SAVED"]):
+            if is_success and ("EXTRACTED" in stdout_upper or "FOUND" in stdout_upper or "SAVED" in stdout_upper):
                 # Parse row count
                 row_count = 0
-                patterns = [
-                    r'(?:Extracted|Found|Saved)\s+(\d+)\s+(?:rows|records|items)',
-                    r'SUCCESS:\s+Extracted\s+(\d+)',
-                ]
-                for pattern in patterns:
-                    match = re.search(pattern, result.stdout, re.IGNORECASE)
+                for pattern in _ROW_COUNT_PATTERNS:
+                    match = pattern.search(result.stdout)
                     if match:
                         row_count = int(match.group(1))
                         break
