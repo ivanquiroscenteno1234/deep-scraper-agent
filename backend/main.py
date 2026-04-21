@@ -3,7 +3,7 @@ import os
 import sys
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, HttpUrl
 import asyncio
 import json
 import uuid
@@ -31,17 +31,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 🛡️ Sentinel: Added strict input validation constraints to prevent large payload DoS
+# and malformed data injection before it reaches subprocesses.
 class ScrapeRequest(BaseModel):
-    url: str
-    search_query: str
-    start_date: str = "01/01/1980"
-    end_date: str = datetime.now().strftime("%m/%d/%Y")
+    url: HttpUrl
+    search_query: str = Field(..., max_length=200)
+    start_date: str = Field(default="01/01/1980", pattern=r"^\d{2}/\d{2}/\d{4}$")
+    end_date: str = Field(default_factory=lambda: datetime.now().strftime("%m/%d/%Y"), pattern=r"^\d{2}/\d{2}/\d{4}$")
 
 class ExecuteRequest(BaseModel):
     script_path: str
-    search_query: str
-    start_date: str = "01/01/1980"
-    end_date: str = datetime.now().strftime("%m/%d/%Y")
+    search_query: str = Field(..., max_length=200)
+    start_date: str = Field(default="01/01/1980", pattern=r"^\d{2}/\d{2}/\d{4}$")
+    end_date: str = Field(default_factory=lambda: datetime.now().strftime("%m/%d/%Y"), pattern=r"^\d{2}/\d{2}/\d{4}$")
 
 # In-memory store for agent status
 runs = {}
@@ -109,7 +111,7 @@ async def agent_ws(websocket: WebSocket, run_id: str):
     try:
         # Initial state for LangGraph
         initial_state = AgentState(
-            target_url=run_data["url"],
+            target_url=str(run_data["url"]),
             search_query=run_data["query"],
             start_date=run_data.get("start_date", "01/01/1980"),
             end_date=run_data.get("end_date", datetime.now().strftime("%m/%d/%Y")),
