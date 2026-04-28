@@ -48,6 +48,10 @@ class ExecuteRequest(BaseModel):
 # In-memory store for agent status
 runs = {}
 
+# BOLT ⚡: Pre-compile regexes at module level for performance
+_ROW_COUNT_PATTERN = re.compile(r'(?:Extracted|Found|Saved|Saving)\s+(\d+)\s+(?:rows|records|items)', re.IGNORECASE)
+_CSV_PATH_PATTERN = re.compile(r'(?:saved to|CSV saved:|to|Saved)\s+([^\s]+\.csv)', re.IGNORECASE)
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -231,14 +235,14 @@ async def execute_script(request: ExecuteRequest):
         
         # 2. Extract Row Count
         row_count = 0
-        row_match = re.search(r'(?:Extracted|Found|Saved|Saving)\s+(\d+)\s+(?:rows|records|items)', stdout_text, re.IGNORECASE)
+        row_match = _ROW_COUNT_PATTERN.search(stdout_text)
         if row_match:
             row_count = int(row_match.group(1))
             
         # 3. CSV File Resolution
         csv_file = None
         # Try finding path in stdout - support multiple formats
-        csv_path_match = re.search(r'(?:saved to|CSV saved:|to|Saved)\s+([^\s]+\.csv)', stdout_text, re.IGNORECASE)
+        csv_path_match = _CSV_PATH_PATTERN.search(stdout_text)
         if csv_path_match:
             csv_file = csv_path_match.group(1).strip()
             

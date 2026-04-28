@@ -23,6 +23,9 @@ from deep_scraper.graph.nodes.config import (
     StructuredLogger,
 )
 
+# BOLT ⚡: Pre-compile regex for performance
+_CLERK_PATTERN = re.compile(r'(\w+)clerk', re.IGNORECASE)
+
 # Expanded patterns for various clerk systems
 _SEARCH_INDICATORS = [
     # AcclaimWeb patterns
@@ -71,7 +74,7 @@ async def node_navigate_mcp(state: AgentState) -> Dict[str, Any]:
     if not browser._codegen_started:
         parsed = urlparse(url)
         hostname = parsed.hostname or "unknown"
-        county_match = re.search(r'(\w+)clerk', hostname, re.IGNORECASE)
+        county_match = _CLERK_PATTERN.search(hostname)
         if county_match:
             county_name = county_match.group(1).lower()
         else:
